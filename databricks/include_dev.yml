@@ -1,0 +1,10 @@
+# includes for dev
+#   In addition to the main resources/*.yml include, we have the development deployments which are not ready to progress beyond development. This is not envisaged to be a long-term pattern. Once development stabilises, everything should go through the resources folder, and there should only be one include
+include:
+  - resources/*.yml
+  - resources_in_development/*.yml
+  - resources_for_quality_engineering/*.yml
+  - AI_Work/*.yml
+  # - resources_examples/*.yml
+  - resources_core_non_prod/*.yml
+  # - Core/resources/*.yml

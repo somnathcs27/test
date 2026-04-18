@@ -1,0 +1,101 @@
+parameters:
+  - name: reports_only
+    default: '1'
+  - name: environment_shortname
+    default: ''
+  - name: triggering_pipeline_projectId
+    default: ''
+  - name: triggering_pipeline_branchName
+    default: ''
+  - name: triggering_pipeline_pipelineId
+    default: ''
+  - name: triggering_pipeline_runId
+    default: ''
+  - name: artifact_folder
+    default: ''
+  - name: entra_management_group_name
+    default: ''
+  - name: databricks_repo_id
+    default: ''
+  - name: cluster_id
+    default: ''
+  - name: gold_cluster_id
+    default: ''
+  - name: databricks_host
+    default: ''
+  - name: databricks_client_id
+    default: ''
+  - name: databricks_client_secret
+    default: ''
+  - name: common_libs_version
+    default: ''
+  - name: init_script_name
+    default: ''
+  - name: datalake_name_con
+    default: ''
+  - name: datalake_name_int
+    default: ''
+  - name: datalake_name_pub
+    default: ''
+  - name: datalake_name_sec
+    default: ''
+  - name: common_libs_lts_ver
+    default: ''
+  - name: common_libs_lts_ver_underscore
+    default: ''
+  - name: common_libs_beta_ver
+    default: ''
+  - name: common_libs_beta_ver_underscore
+    default: ''
+  - name: boe_base_rate
+    default: ''
+  - name: service_principal_account_statements
+    default: ''
+  - name: service_principal_account_statements_2
+    default: ''
+  - name: service_principal_account_statements_3
+    default: ''
+  - name: service_principal_bi_ods
+    default: ''
+  - name: service_principal_sap_hana
+    default: '' 
+  - name: service_principal_power_bi
+    default: ''
+  - name: serverless_env_ver
+    default: ''
+
+steps:
+  - template: ../verify_databricks.yml
+
+  - script: |
+      type ${{ parameters.environment_shortname }}_databricks.yml include_${{ parameters.environment_shortname }}.yml > databricks.yml
+    displayName: 'Build Asset Bundle File from Artifact'
+    workingDirectory: ${{ parameters.artifact_folder }}
+
+  - script: |
+      databricks bundle validate -t ${{ parameters.environment_shortname }}
+    displayName: 'Validate bundle for ${{ parameters.environment_shortname }}'
+    workingDirectory: ${{ parameters.artifact_folder }}
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+      BUNDLE_VAR_ENTRA_MANAGEMENT_GROUP_NAME: ${{ parameters.entra_management_group_name }}
+      BUNDLE_VAR_DATALAKE_NAME_CON: ${{ parameters.datalake_name_con }}
+      BUNDLE_VAR_DATALAKE_NAME_INT: ${{ parameters.datalake_name_int }}
+      BUNDLE_VAR_DATALAKE_NAME_PUB: ${{ parameters.datalake_name_pub }}
+      BUNDLE_VAR_DATALAKE_NAME_SEC: ${{ parameters.datalake_name_sec }}
+      BUNDLE_VAR_gold_cluster_id: ${{ parameters.gold_cluster_id }}
+      BUNDLE_VAR_all_purpose_cluster_id : ${{ parameters.cluster_id }}
+      BUNDLE_VAR_common_libs_lts_ver: ${{ parameters.common_libs_lts_ver }}
+      BUNDLE_VAR_common_libs_lts_ver_underscore: ${{ parameters.common_libs_lts_ver_underscore }}
+      BUNDLE_VAR_common_libs_beta_ver: ${{ parameters.common_libs_beta_ver }}
+      BUNDLE_VAR_common_libs_beta_ver_underscore: ${{ parameters.common_libs_beta_ver_underscore }}
+      BUNDLE_VAR_boe_base_rate: ${{ parameters.boe_base_rate }}
+      BUNDLE_VAR_service_principal_account_statements: ${{ parameters.service_principal_account_statements }}
+      BUNDLE_VAR_service_principal_account_statements_2: ${{ parameters.service_principal_account_statements_2 }}
+      BUNDLE_VAR_service_principal_account_statements_3: ${{ parameters.service_principal_account_statements_3 }}
+      BUNDLE_VAR_service_principal_bi_ods: ${{ parameters.service_principal_bi_ods }}
+      BUNDLE_VAR_service_principal_sap_hana: ${{ parameters.service_principal_sap_hana }}
+      BUNDLE_VAR_service_principal_power_bi: ${{ parameters.service_principal_power_bi }}
+      BUNDLE_VAR_serverless_env_ver: ${{ parameters.serverless_env_ver }}

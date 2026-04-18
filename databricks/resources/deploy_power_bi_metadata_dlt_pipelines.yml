@@ -1,0 +1,109 @@
+resources:
+  jobs:
+    run_power_bi_metadata_dlt_pipelines:
+      name: ${bundle.target}_job_run_power_bi_metadata_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_power_bi_metadata_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_power_bi_metadata_int.id}
+            full_refresh: false
+        - task_key: silver_power_bi_metadata_int
+          depends_on:
+            - task_key: bronze_power_bi_metadata_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_power_bi_metadata_int.id}
+            full_refresh: false
+        - task_key: silver_power_bi_metadata_pk_checks_int
+          depends_on:
+            - task_key: silver_power_bi_metadata_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_power_bi_metadata_pk_checks_int.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_power_bi_metadata_int:
+      name: ${bundle.target}_dlt_bronze_power_bi_metadata_int
+      tags:
+        source: 'bi_metadata'
+        class: 'int'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'bi_metadata'
+            class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/power_bi_metadata/nb_dlt_bronze_int_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: bronze_power_bi_metadata_int
+      catalog: ${bundle.target}_catalog
+    dlt_silver_power_bi_metadata_int:
+      name: ${bundle.target}_dlt_silver_power_bi_metadata_int
+      tags:
+        source: 'bi_metadata'
+        class: 'int'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'bi_metadata'
+            class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/silver_models/power_bi_metadata_model/nb_dlt_update_silver_int_power_bi_metadata_py.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: silver_int
+      catalog: ${bundle.target}_catalog
+
+    dlt_silver_power_bi_metadata_pk_checks_int:
+      name: ${bundle.target}_dlt_silver_power_bi_metadata_pk_checks_int
+      tags:
+        source: 'bi_metadata'
+        class: 'int'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'bi_metadata'
+            class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/silver_models/power_bi_metadata_model/nb_dlt_update_silver_int_power_bi_metadata_pk_checks_py.py"
+      configuration:
+        environment_name: ${bundle.target}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: data_quality
+      catalog: ${bundle.target}_catalog

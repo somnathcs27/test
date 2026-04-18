@@ -1,0 +1,11 @@
+resources:
+  jobs:    
+    run_mambu_dlt_pipeline:
+      name: run_mambu_dlt_pipeline
+      tasks:
+        - task_key: bronze_mambu_int
+          pipeline_task:
+            pipeline_id: 501ad061-0d2f-45f3-8f54-4e6057748372
+            full_refresh: false
+      queue:
+        enabled: true

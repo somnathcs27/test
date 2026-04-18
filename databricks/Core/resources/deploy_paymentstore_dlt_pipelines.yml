@@ -1,0 +1,51 @@
+resources:
+  jobs:
+    run_paymentstore_dlt_pipelines:
+      name: ${bundle.target}_run_paymentstore_dlt_pipelines
+      tasks:
+        - task_key: bronze_paymentstore_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_paymentstore_con.id}
+            full_refresh: false
+        - task_key: bronze_paymentstore_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_paymentstore_int.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_paymentstore_con:
+      name: ${bundle.target}_dlt_bronze_paymentstore_con
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 5
+            mode: ENHANCED
+      libraries:
+        - notebook:
+            # notebook doesn't exist in src on the main branch - needs fixing.
+            path: "/Workspace/Repos/notebooks/databricks/src/bronze_merges/paymentstore/nb_dlt_bronze_con_data_model.py"
+      target: bronze_paymentstore_con
+      channel: PREVIEW
+      catalog: ${bundle.target}_catalog
+      data_sampling: false
+
+    dlt_bronze_paymentstore_int:
+      name: ${bundle.target}_dlt_bronze_paymentstore_int
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 5
+            mode: ENHANCED
+      libraries:
+        - notebook:
+            # notebook doesn't exist in src on the main branch - needs fixing.
+            path: "/Workspace/Repos/notebooks/databricks/src/bronze_merges/paymentstore/nb_dlt_bronze_int_data_model.py"
+      target: bronze_paymentstore_int
+      channel: PREVIEW
+      catalog: ${bundle.target}_catalog
+      data_sampling: false
+  

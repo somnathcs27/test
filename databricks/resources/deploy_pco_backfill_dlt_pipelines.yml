@@ -1,0 +1,77 @@
+resources:
+  jobs:
+    run_pco_backfill_dlt_pipelines:
+      name: ${bundle.target}_job_run_pco_backfill_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_pco_backfill_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_pco_backfill_con.id}
+            full_refresh: false
+        - task_key: bronze_pco_backfill_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_pco_backfill_int.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_pco_backfill_con:
+      name: ${bundle.target}_dlt_bronze_pco_backfill_con
+      tags:
+        source: 'pco_backfill'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'pco_backfill'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/pco_backfill/nb_dlt_bronze_con_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: bronze_pco_backfill_con
+      catalog: ${bundle.target}_catalog
+
+    dlt_bronze_pco_backfill_int:
+      name: ${bundle.target}_dlt_bronze_pco_backfill_int
+      tags:
+        source: 'pco_backfill'
+        class: 'int'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'pco_backfill'
+            class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/pco_backfill/nb_dlt_bronze_int_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: bronze_pco_backfill_int
+      catalog: ${bundle.target}_catalog

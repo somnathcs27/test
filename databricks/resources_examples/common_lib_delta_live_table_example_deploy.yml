@@ -1,0 +1,32 @@
+resources:
+  jobs:
+    run_commonlib_dlt_pipelines:
+      name: ${bundle.target}_run_commonlib_dlt_pipelines
+      tasks:
+        - task_key: commonlib_task
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_commonlib.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_commonlib:
+      name: ${bundle.target}_dlt_commonlib
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 5
+            mode: ENHANCED
+      libraries:
+        - notebook:
+            path: "../src/includes/dev_include_mdp_databricks_common_0_2.py"
+        - notebook:
+            path: "../examples/use_common_libs_example_dlt_asset_bundle.py"
+      configuration:
+        illustration_injected_par: some_value_of_injected_par
+        
+      target: commonlib_target
+      channel: PREVIEW
+      catalog: ${bundle.target}_catalog

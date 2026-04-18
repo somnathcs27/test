@@ -1,0 +1,11 @@
+resources:
+  jobs:    
+    run_dataverse_dlt_pipelines:
+      name: run_dataverse_dlt_pipelines
+      tasks:
+        - task_key: bronze_dataverse_con
+          pipeline_task:
+            pipeline_id: 31f49be4-d3b5-42c2-b40c-a8de851ec203
+            full_refresh: false
+      queue:
+        enabled: true

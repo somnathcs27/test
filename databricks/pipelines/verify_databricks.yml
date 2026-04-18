@@ -1,0 +1,11 @@
+---
+
+
+# This template fails if `databricks` (cli program) is missing.
+# Running a direct invocation under script type is platform independent.
+# (works on windows / linux / other agents).
+steps:
+  - script: |
+      databricks version
+    displayName: 'Check Databricks CLI available'
+    failOnStderr: true

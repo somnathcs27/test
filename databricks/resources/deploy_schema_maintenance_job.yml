@@ -1,0 +1,52 @@
+resources:
+
+  jobs:
+    run_schema_maintenance_job:
+      name: ${bundle.target}_run_schema_maintenance_job
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: create_catalogs
+          notebook_task:
+            notebook_path: "../schema_maintenance/create_catalogs.py"
+            base_parameters:
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+              env_var: ${bundle.target}
+          existing_cluster_id: ${var.all_purpose_cluster_id}     
+        - task_key: create_schemas
+          depends_on:
+            - task_key: create_catalogs        
+          notebook_task:
+            notebook_path: "../schema_maintenance/create_schemas.py"
+            base_parameters:
+              catalog: ${bundle.target}_catalog
+              env_var: ${bundle.target}
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+          existing_cluster_id: ${var.all_purpose_cluster_id}
+        - task_key: populate_workflow_control_metadata
+          depends_on:
+            - task_key: create_schemas
+          notebook_task:
+            notebook_path: "../schema_maintenance/nb_workflow_control_populate_metadata_py.py"
+            base_parameters:
+              catalog: ${bundle.target}_catalog
+              env_var: ${bundle.target}
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+          existing_cluster_id: ${var.all_purpose_cluster_id}
+        - task_key: run_flyway_schema_migration
+          depends_on:
+            - task_key: populate_workflow_control_metadata
+          notebook_task:
+            notebook_path: "../schema_maintenance/nb_flyway_migration_py.py"
+            base_parameters:
+              catalog: ${bundle.target}_catalog
+              env_var: ${bundle.target}
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+          existing_cluster_id: ${var.all_purpose_cluster_id}
+      queue:
+        enabled: true

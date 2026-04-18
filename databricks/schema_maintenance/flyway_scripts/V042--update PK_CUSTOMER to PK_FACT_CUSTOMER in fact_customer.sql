@@ -1,0 +1,2 @@
+-- {"check_type":"column_not_present", "table_schema":"gold_con", "table_name":"fact_customer", "column_name":"PK_FACT_CUSTOMER"}
+ALTER TABLE {catalog_name}.gold_con.fact_customer RENAME COLUMN PK_CUSTOMER TO PK_FACT_CUSTOMER

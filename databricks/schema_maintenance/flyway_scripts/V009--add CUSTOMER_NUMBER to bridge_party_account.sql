@@ -1,0 +1,2 @@
+-- {"check_type":"column_not_present", "table_schema":"gold_con", "table_name":"bridge_party_account", "column_name":"CUSTOMER_NUMBER"}
+ALTER TABLE {catalog_name}.gold_con.bridge_party_account ADD COLUMNS (CUSTOMER_NUMBER STRING AFTER FK_ACCOUNT)

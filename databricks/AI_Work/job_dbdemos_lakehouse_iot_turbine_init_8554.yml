@@ -1,0 +1,64 @@
+resources:
+  jobs:
+    dbdemos_lakehouse_iot_turbine_init_8554:
+
+      #schedule:
+      # Run every day at 8:37 AM
+      #  quartz_cron_expression: '44 37 8 * * ?'
+      #  timezone_id: Europe/Amsterdam
+
+      #email_notifications:
+      #  on_failure:
+      #    - robert.meldrum@ans.co.uk  
+
+      name: dbdemos_lakehouse_iot_turbine_init_8554
+      tasks:
+        - task_key: init_data
+          notebook_task:
+            notebook_path: /Users/8554@lhbs.net/lakehouse-iot-platform/_resources/01-load-data
+            source: WORKSPACE
+          job_cluster_key: Shared_job_cluster
+        - task_key: start_dlt_pipeline
+          depends_on:
+            - task_key: init_data
+          pipeline_task:
+            pipeline_id: f302f2bc-a0c0-4c61-8b87-8084e62966ce
+            full_refresh: true
+        - task_key: create_feature_and_automl_run
+          depends_on:
+            - task_key: start_dlt_pipeline
+          notebook_task:
+            notebook_path: /Users/8554@lhbs.net/lakehouse-iot-platform/04-Data-Science-ML/04.1-automl-iot-turbine-predictive-maintenance
+            source: WORKSPACE
+          job_cluster_key: Shared_job_cluster
+        - task_key: register_ml_model
+          depends_on:
+            - task_key: create_feature_and_automl_run
+          notebook_task:
+            notebook_path: /Users/8554@lhbs.net/lakehouse-iot-platform/04-Data-Science-ML/04.2-automl-generated-notebook-iot-turbine
+            source: WORKSPACE
+          job_cluster_key: Shared_job_cluster
+      job_clusters:
+        - job_cluster_key: Shared_job_cluster
+          new_cluster:
+            spark_version: 15.1.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+              spark.databricks.dataLineage.enabled: "true"
+            azure_attributes:
+              first_on_demand: 1
+              availability: ON_DEMAND_AZURE
+              spot_bid_max_price: -1
+            node_type_id: Standard_D8ds_v4
+            custom_tags:
+              ResourceClass: SingleNode
+              project: dbdemos
+              demo: lakehouse-iot-platform
+            spark_env_vars:
+              PYSPARK_PYTHON: /databricks/python3/bin/python3
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+

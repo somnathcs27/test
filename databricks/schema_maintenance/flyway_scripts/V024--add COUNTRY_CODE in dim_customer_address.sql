@@ -1,0 +1,2 @@
+-- {"check_type":"column_not_present", "table_schema":"gold_con", "table_name":"dim_customer_address", "column_name":"COUNTRY_CODE"}
+ALTER TABLE {catalog_name}.gold_con.dim_customer_address ADD COLUMNS (COUNTRY_CODE STRING AFTER POSTAL_CODE)

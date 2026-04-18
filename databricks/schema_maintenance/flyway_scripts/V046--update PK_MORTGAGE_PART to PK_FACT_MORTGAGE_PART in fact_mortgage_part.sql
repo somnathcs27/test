@@ -1,0 +1,2 @@
+-- {"check_type":"column_not_present", "table_schema":"gold_con", "table_name":"fact_mortgage_part", "column_name":"PK_FACT_MORTGAGE_PART"}
+ALTER TABLE {catalog_name}.gold_con.fact_mortgage_part RENAME COLUMN PK_MORTGAGE_PART TO PK_FACT_MORTGAGE_PART

@@ -1,0 +1,28 @@
+resources:
+  jobs:
+    run_quality_engineering_mambu_dlt_pipelines:
+      name: ${bundle.target}_job_run_quality_engineering_mambu_dlt_pipelines
+      tasks:
+        - task_key: dlt_mambu_quality_engineering
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_mambu_quality_engineering.id}
+            full_refresh: false        
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_mambu_quality_engineering:
+      name: ${bundle.target}_dlt_mambu_quality_engineering
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+      libraries:
+        - notebook:
+            # notebook not on main branch - needs fixing
+            path: "../data_quality/regression_suit/mambu/mambu_derived_dlt_tables.py"
+      target: data_quality
+      channel: PREVIEW
+      catalog: ${bundle.target}_catalog

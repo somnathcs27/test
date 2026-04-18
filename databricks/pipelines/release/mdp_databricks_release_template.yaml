@@ -1,0 +1,212 @@
+---
+parameters:
+  - name: reports_only
+    default: '1'
+  - name: environment_shortname
+    default: ''
+  - name: triggering_pipeline_projectId
+    default: ''
+  - name: triggering_pipeline_branchName
+    default: ''
+  - name: triggering_pipeline_pipelineId
+    default: ''
+  - name: triggering_pipeline_runId
+    default: ''
+  - name: artifact_folder
+    default: ''
+  - name: entra_management_group_name
+    default: ''
+  - name: databricks_repo_id
+    default: ''
+  - name: cluster_id
+    default: ''
+  - name: gold_cluster_id
+    default: ''
+  - name: databricks_host
+    default: ''
+  - name: databricks_client_id
+    default: ''
+  - name: databricks_client_secret
+    default: ''
+  - name: common_libs_version
+    default: ''
+  - name: init_script_name
+    default: ''
+  - name: datalake_name_con
+    default: ''
+  - name: datalake_name_int
+    default: ''
+  - name: datalake_name_pub
+    default: ''
+  - name: datalake_name_sec
+    default: ''
+  - name: oauth_client_id
+    default: ''
+  - name: oauth_client_secret
+    default: ''
+  - name: oauth_tenant_id
+    default: ''
+  - name: workflow_db_host
+    default: ''
+  - name: workflow_db_name
+    default: ''
+  - name: job_failure_notification_display_name
+    default: ''
+  - name: job_failure_webhook_url
+    default: ''
+  - name: common_libs_lts_ver
+    default: ''
+  - name: common_libs_lts_ver_underscore
+    default: ''
+  - name: common_libs_beta_ver
+    default: ''
+  - name: common_libs_beta_ver_underscore
+    default: ''
+  - name: boe_base_rate
+    default: ''
+  - name: service_principal_account_statements
+    default: ''
+  - name: service_principal_account_statements_2
+    default: ''
+  - name: service_principal_account_statements_3
+    default: ''
+  - name: service_principal_bi_ods
+    default: ''
+  - name: service_principal_sap_hana
+    default: '' 
+  - name: service_principal_power_bi
+    default: ''
+  - name: serverless_env_ver
+    default: ''
+
+steps:
+  - template: ../verify_databricks.yml
+
+  - task: PowerShell@2
+    inputs:
+      targetType: 'filePath'
+      filePath: ${{ parameters.artifact_folder }}/pipelines/scripts/upload_flyway_scripts.ps1
+      arguments: -environment_shortname ${{ parameters.environment_shortname }} -scripts_directory ${{ parameters.artifact_folder }}/schema_maintenance/flyway_scripts -uc_schema_name schema_migration -uc_volume_name flyway_schema_migration_scripts
+    displayName: 'Upload flyway scripts'
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+
+  - script: |
+      type ${{ parameters.environment_shortname }}_databricks.yml include_${{ parameters.environment_shortname }}.yml > databricks.yml
+    displayName: 'Build Asset Bundle File from Artifact'
+    workingDirectory: ${{ parameters.artifact_folder }}
+
+  - script: |
+      databricks bundle validate -t ${{ parameters.environment_shortname }}
+    displayName: 'Validate bundle for ${{ parameters.environment_shortname }}'
+    workingDirectory: ${{ parameters.artifact_folder }}
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+      BUNDLE_VAR_ENTRA_MANAGEMENT_GROUP_NAME: ${{ parameters.entra_management_group_name }}
+      BUNDLE_VAR_DATALAKE_NAME_CON: ${{ parameters.datalake_name_con }}
+      BUNDLE_VAR_DATALAKE_NAME_INT: ${{ parameters.datalake_name_int }}
+      BUNDLE_VAR_DATALAKE_NAME_PUB: ${{ parameters.datalake_name_pub }}
+      BUNDLE_VAR_DATALAKE_NAME_SEC: ${{ parameters.datalake_name_sec }}
+      BUNDLE_VAR_gold_cluster_id: ${{ parameters.gold_cluster_id }}
+      BUNDLE_VAR_all_purpose_cluster_id : ${{ parameters.cluster_id }}
+      BUNDLE_VAR_job_failure_notification_destination_id: $(databricks_job_failure_notification_destination_id)
+      BUNDLE_VAR_common_libs_lts_ver: ${{ parameters.common_libs_lts_ver }}
+      BUNDLE_VAR_common_libs_lts_ver_underscore: ${{ parameters.common_libs_lts_ver_underscore }}
+      BUNDLE_VAR_common_libs_beta_ver: ${{ parameters.common_libs_beta_ver }}
+      BUNDLE_VAR_common_libs_beta_ver_underscore: ${{ parameters.common_libs_beta_ver_underscore }}
+      BUNDLE_VAR_boe_base_rate: ${{ parameters.boe_base_rate }}
+      BUNDLE_VAR_service_principal_account_statements: ${{ parameters.service_principal_account_statements }}
+      BUNDLE_VAR_service_principal_account_statements_2: ${{ parameters.service_principal_account_statements_2 }}
+      BUNDLE_VAR_service_principal_account_statements_3: ${{ parameters.service_principal_account_statements_3 }}
+      BUNDLE_VAR_service_principal_bi_ods: ${{ parameters.service_principal_bi_ods }}
+      BUNDLE_VAR_service_principal_sap_hana: ${{ parameters.service_principal_sap_hana }}
+      BUNDLE_VAR_service_principal_power_bi: ${{ parameters.service_principal_power_bi }}
+      BUNDLE_VAR_serverless_env_ver: ${{ parameters.serverless_env_ver }}
+
+  - task: PowerShell@2
+    inputs:
+      targetType: 'filePath'
+      filePath: ${{ parameters.artifact_folder }}/pipelines/scripts/add_ms_teams_notification_destination.ps1
+      arguments: -DisplayName '${{ parameters.job_failure_notification_display_name }}' -WebhookUrl '${{ parameters.job_failure_webhook_url }}'
+    displayName: 'Create Job Failure Notification Destination'
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+
+  - script: |
+      databricks bundle deploy -t ${{ parameters.environment_shortname }} --force-lock --force --debug
+    displayName: 'Deploy bundle to ${{ parameters.environment_shortname }}'
+    workingDirectory: ${{ parameters.artifact_folder }}
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+      BUNDLE_VAR_ENTRA_MANAGEMENT_GROUP_NAME: ${{ parameters.entra_management_group_name }}
+      BUNDLE_VAR_DATALAKE_NAME_CON: ${{ parameters.datalake_name_con }}
+      BUNDLE_VAR_DATALAKE_NAME_INT: ${{ parameters.datalake_name_int }}
+      BUNDLE_VAR_DATALAKE_NAME_PUB: ${{ parameters.datalake_name_pub }}
+      BUNDLE_VAR_DATALAKE_NAME_SEC: ${{ parameters.datalake_name_sec }}
+      BUNDLE_VAR_gold_cluster_id: ${{ parameters.gold_cluster_id }}
+      BUNDLE_VAR_all_purpose_cluster_id : ${{ parameters.cluster_id }}
+      BUNDLE_VAR_job_failure_notification_destination_id: $(databricks_job_failure_notification_destination_id)
+      BUNDLE_VAR_common_libs_lts_ver: ${{ parameters.common_libs_lts_ver }}
+      BUNDLE_VAR_common_libs_lts_ver_underscore: ${{ parameters.common_libs_lts_ver_underscore }}
+      BUNDLE_VAR_common_libs_beta_ver: ${{ parameters.common_libs_beta_ver }}
+      BUNDLE_VAR_common_libs_beta_ver_underscore: ${{ parameters.common_libs_beta_ver_underscore }}
+      BUNDLE_VAR_boe_base_rate: ${{ parameters.boe_base_rate }}
+      BUNDLE_VAR_service_principal_account_statements: ${{ parameters.service_principal_account_statements }}
+      BUNDLE_VAR_service_principal_account_statements_2: ${{ parameters.service_principal_account_statements_2 }}
+      BUNDLE_VAR_service_principal_account_statements_3: ${{ parameters.service_principal_account_statements_3 }}
+      BUNDLE_VAR_service_principal_bi_ods: ${{ parameters.service_principal_bi_ods }}
+      BUNDLE_VAR_service_principal_sap_hana: ${{ parameters.service_principal_sap_hana }}
+      BUNDLE_VAR_service_principal_power_bi: ${{ parameters.service_principal_power_bi }}
+      BUNDLE_VAR_serverless_env_ver: ${{ parameters.serverless_env_ver }}
+
+  - task: PowerShell@2
+    inputs:
+      targetType: 'filePath'
+      filePath: ${{ parameters.artifact_folder }}/pipelines/scripts/start_clusters.ps1
+      arguments: -cluster_id ${{ parameters.cluster_id }}
+    displayName: 'Start clusters'
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+
+  - task: PowerShell@2
+    inputs:
+      targetType: 'filePath'
+      filePath: ${{ parameters.artifact_folder }}/pipelines/scripts/run_foreign_catalog_refresh_job.ps1
+      arguments: -repository_path $(Build.Repository.LocalPath) -environment_shortname ${{ parameters.environment_shortname }}
+    displayName: 'Run Refresh Foreign Catalog Job'
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+
+  - task: PowerShell@2
+    inputs:
+      targetType: 'filePath'
+      filePath: ${{ parameters.artifact_folder }}/pipelines/scripts/upload_init_script.ps1
+      arguments: -environment_shortname ${{ parameters.environment_shortname }} -package_directory $(Pipeline.Workspace) -init_script_name ${{ parameters.init_script_name }}
+    displayName: 'Upload and assign cluster init scripts'
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}
+
+  - task: PowerShell@2
+    inputs:
+      targetType: 'filePath'
+      filePath: ${{ parameters.artifact_folder }}/pipelines/scripts/run_databricks_schema_maintenance_job.ps1
+      arguments: -repository_path $(Build.Repository.LocalPath) -environment_shortname ${{ parameters.environment_shortname }}
+    displayName: 'Run Schema Maintenance job'
+    env:
+      DATABRICKS_HOST: ${{ parameters.databricks_host }}
+      DATABRICKS_CLIENT_ID: ${{ parameters.databricks_client_id }}
+      DATABRICKS_CLIENT_SECRET: ${{ parameters.databricks_client_secret }}

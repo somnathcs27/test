@@ -1,0 +1,152 @@
+# Databricks notebook source
+import dlt
+from pyspark.sql.functions import expr, row_number, monotonically_increasing_id
+from pyspark.sql.window import Window
+ 
+import mdp_databricks_common.gold_layer_functions as dlf
+import mdp_databricks_common.silver_layer_functions as dlfs
+
+# Get environment variable from AKV
+env_var = dbutils.secrets.get(scope = 'data-kv-scope', key = 'data-platform-environment')
+
+# COMMAND ----------
+
+@dlt.table(
+  name = "dim_calendar",
+  comment = "Date dimension"
+)
+def gold_dim_calendar ():
+
+        df = spark.sql(f"""
+        SELECT
+        CALENDAR_DATE AS PK_DATE,
+        DAY_NAME,
+        DAY_NAME_SHORT,
+        DAY_OF_WEEK,
+        DAY_OF_MONTH,
+        DAY_OF_YEAR,
+        FIVE_WORK_DAY_FLAG,
+        SIX_WORK_DAY_FLAG,
+        WEEK_OF_MONTH,
+        WEEK_OF_YEAR,
+        IS_CURRENT_WEEK_S2M,
+        IS_CURRENT_WEEK_M2S,
+        MONTH_NAME,
+        MONTH_NAME_SHORT,
+        MONTH_OF_YEAR,
+        LAST_DAY(CALENDAR_DATE) AS MONTH_END,
+        GL_PERIOD,
+        QUARTER_OF_YEAR,
+        YEAR_QUARTER,
+        YEAR,
+        YEAR_MONTH,
+        DAY_RANK,
+        WEEK_RANK,
+        MONTH_RANK,
+        QUARTER_RANK,
+        DATE_FORMAT(CURRENT_DATE,'yyyy')- YEAR AS YEAR_RANK,
+        CASE 
+          WHEN CALENDAR_DATE > CURRENT_DATE THEN NULL
+          ELSE 
+            SUM(FIVE_WORK_DAY_FLAG) OVER (
+              ORDER BY CALENDAR_DATE ASC
+              ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            ) - 5
+        END AS FIVE_WORK_DAY_RANK,
+        CASE 
+        WHEN CALENDAR_DATE > CURRENT_DATE THEN NULL
+        ELSE 
+          SUM(SIX_WORK_DAY_FLAG) OVER (
+            ORDER BY CALENDAR_DATE ASC
+            ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+          ) - 6
+        END AS SIX_WORK_DAY_RANK,
+        CASE 
+          WHEN CALENDAR_DATE > CURRENT_DATE THEN NULL
+          ELSE 
+            SUM(FIVE_WORK_DAY_FLAG) OVER (
+              ORDER BY CALENDAR_DATE ASC
+              ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            ) - 6
+        END AS LATEST_WORKING_DAY_RANK,
+        PREVIOUS_MONTH_TO_DATE,
+        PREVIOUS_YEAR_TO_DATE,
+        CURRENT_REPORTING_MONTH,
+        DAYS_IN_MONTH,
+        SUM (FIVE_WORK_DAY_FLAG) OVER (PARTITION BY YEAR_MONTH) AS WORKING_DAYS_IN_MONTH,
+        SUM ( CASE WHEN CALENDAR_DATE >= CURRENT_DATE THEN 0 ELSE FIVE_WORK_DAY_FLAG END) OVER (PARTITION BY YEAR_MONTH ORDER BY CALENDAR_DATE) AS WORKING_DAYS_THROUGH_MONTH,
+        CURRENT_REPORTING_YEAR,
+        CASE WHEN IS_BANK_HOLIDAY = 1 THEN 'Y' ELSE 'N' END AS IS_BANK_HOLIDAY
+        FROM(
+          SELECT
+          REPLACE(CALENDAR_DATE,'-','') AS CAL_DATE_ID,
+          CALENDAR_DATE,
+          DATE_FORMAT(CALENDAR_DATE, 'yyyy-MMM-dd') AS CALDATE,
+          DATE_FORMAT(CALENDAR_DATE,'EEEE') AS DAY_NAME,
+          DATE_FORMAT(CALENDAR_DATE,'E') AS DAY_NAME_SHORT,
+          WEEKDAY(CALENDAR_DATE)+1 AS DAY_OF_WEEK,
+          DAY(CALENDAR_DATE) AS DAY_OF_MONTH,
+          DAYOFYEAR(CALENDAR_DATE) AS DAY_OF_YEAR,
+          CASE WHEN WEEKDAY(CALENDAR_DATE)+1 IN (6,7) THEN 0
+               WHEN CALENDAR_DATE = b.BANK_HOLIDAY_DATE THEN 0          
+               ELSE 1 
+          END AS FIVE_WORK_DAY_FLAG,
+          CASE WHEN WEEKDAY(CALENDAR_DATE)+1 = 7 THEN 0
+               WHEN CALENDAR_DATE = b.BANK_HOLIDAY_DATE THEN 0
+               ELSE 1 
+          END AS SIX_WORK_DAY_FLAG,
+          CASE
+            WHEN DAYOFMONTH(CALENDAR_DATE) <= 7 THEN 1
+            WHEN DAYOFMONTH(CALENDAR_DATE) <= 14 THEN 2
+            WHEN DAYOFMONTH(CALENDAR_DATE) <= 21 THEN 3
+            WHEN DAYOFMONTH(CALENDAR_DATE) <= 28 THEN 4
+            ELSE 5 
+          END AS WEEK_OF_MONTH,
+          WEEKOFYEAR(CALENDAR_DATE) AS WEEK_OF_YEAR,
+          CASE WHEN WEEKOFYEAR(DATE_ADD(CALENDAR_DATE, 1) ) = WEEKOFYEAR(CURRENT_DATE()) THEN 1 ELSE 0 END AS IS_CURRENT_WEEK_S2M,
+          CASE WHEN WEEKOFYEAR(CALENDAR_DATE) = WEEKOFYEAR(CURRENT_DATE()) THEN 1 ELSE 0 END AS IS_CURRENT_WEEK_M2S,
+          DATE_FORMAT(CALENDAR_DATE, 'MMMM' ) AS MONTH_NAME,
+          DATE_FORMAT(CALENDAR_DATE, 'MMM' ) AS MONTH_NAME_SHORT,
+          MONTH(CALENDAR_DATE) AS MONTH_OF_YEAR,
+          DATE_FORMAT(LAST_DAY(CALENDAR_DATE), 'dd-MMM-yy' ) AS MONTH_END,
+          UPPER(DATE_FORMAT(CALENDAR_DATE, 'MMM-yy')) AS GL_PERIOD,
+          QUARTER(CALENDAR_DATE) AS QUARTER_OF_YEAR,
+          CONCAT(STRING(QUARTER(CALENDAR_DATE)), '-', STRING(YEAR(CALENDAR_DATE)) ) AS QUARTER_YEAR, 
+          CONCAT(STRING(YEAR(CALENDAR_DATE)) , STRING(QUARTER(CALENDAR_DATE)) ) AS YEAR_QUARTER, 
+          YEAR(CALENDAR_DATE) AS YEAR,
+          DATE_FORMAT(CALENDAR_DATE, 'yyyyMM' ) AS YEAR_MONTH,
+          CASE WHEN CALENDAR_DATE = CURRENT_DATE THEN 0 ELSE DATE_DIFF (CURRENT_DATE, CALENDAR_DATE) END AS DAY_RANK,
+          CASE 
+            WHEN WEEKOFYEAR(CALENDAR_DATE) = WEEKOFYEAR(CURRENT_DATE()) AND YEAR(CALENDAR_DATE) = YEAR(CURRENT_DATE()) THEN 0  
+            ELSE DATEDIFF(
+              DATE_SUB(CURRENT_DATE(), pmod(DATEDIFF(CURRENT_DATE(), '1900-01-01'), 7)),
+              DATE_SUB(CALENDAR_DATE, pmod(DATEDIFF(CALENDAR_DATE, '1900-01-01'), 7))
+            ) / 7
+          END AS WEEK_RANK,
+          MONTHS_BETWEEN (LAST_DAY (CURRENT_DATE), LAST_DAY (CALENDAR_DATE)) AS MONTH_RANK,
+          QUARTER(CURRENT_DATE) - QUARTER(CALENDAR_DATE) + 4*(YEAR(CURRENT_DATE) - YEAR(CALENDAR_DATE)) AS QUARTER_RANK,
+          CASE WHEN CALENDAR_DATE BETWEEN DATE_TRUNC('month', ADD_MONTHS(CURRENT_DATE, -1)) AND ADD_MONTHS (CURRENT_DATE, -1) THEN 1 ELSE 0 END AS PREVIOUS_MONTH_TO_DATE,
+          CASE WHEN CALENDAR_DATE BETWEEN DATE_TRUNC('year', ADD_MONTHS(CURRENT_DATE, -12)) AND ADD_MONTHS (CURRENT_DATE, -12) THEN 1 ELSE 0 END AS PREVIOUS_YEAR_TO_DATE,
+          CASE WHEN MONTH(CALENDAR_DATE) = MONTH(CURRENT_DATE()) AND YEAR(CALENDAR_DATE) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END AS CURRENT_REPORTING_MONTH,
+          DATE_FORMAT(LAST_DAY (CALENDAR_DATE), 'dd') AS DAYS_IN_MONTH,
+          CASE WHEN YEAR(CALENDAR_DATE) = YEAR(CURRENT_DATE()) THEN 1 ELSE 0 END AS CURRENT_REPORTING_YEAR, 
+          -- the below aren't currently in SAP so have not included in the final select but keeping logic here in case they are needed in future.
+          CASE WHEN DAYOFWEEK(CALENDAR_DATE) IN (1, 7) THEN 0 ELSE 1 END AS IS_WEEKDAY, 
+          CASE WHEN YEAR(CALENDAR_DATE) % 4 = 0 THEN 1 ELSE 0 END AS IS_LEAP_YEAR,
+          CASE WHEN CALENDAR_DATE = b.BANK_HOLIDAY_DATE THEN 1 ELSE 0 END AS IS_BANK_HOLIDAY
+          FROM (
+              SELECT 
+              EXPLODE(SEQUENCE(DATE'1900-01-02', DATE'2100-12-31', INTERVAL 1 DAY)) AS  CALENDAR_DATE
+              ) AS DATES
+          LEFT JOIN {env_var}_catalog.bronze_reference_data_int.bank_holidays AS b
+          ON DATES.CALENDAR_DATE = b.BANK_HOLIDAY_DATE
+          )
+          WHERE CALENDAR_DATE > '1900-01-01'
+          AND CALENDAR_DATE <= '2100-12-31'
+        """)
+
+        #insert dummy values for unknown(-1) and nulls(-2)
+        #note the PK_DATE is a smart key so we have 1899-12-31 for unknown and 1900-01-01 for null
+        df = dlf.insert_dimension_dummy_rows(df)
+
+        return df

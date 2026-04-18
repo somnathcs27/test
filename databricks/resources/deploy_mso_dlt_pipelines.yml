@@ -1,0 +1,225 @@
+resources:
+  jobs:
+    run_mso_dlt_pipelines:
+      name: ${bundle.target}_job_run_mso_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_mso_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_mso_con.id}
+            full_refresh: false
+        - task_key: bronze_mso_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_mso_int.id}
+            full_refresh: false
+        - task_key: silver_mso_con
+          depends_on:
+            - task_key: bronze_mso_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_mso_con_data_model.id}
+            full_refresh: false
+        - task_key: silver_mso_int
+          depends_on:
+            - task_key: bronze_mso_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_mso_int_data_model.id}
+            full_refresh: false
+        - task_key: gold_mso_con
+          depends_on:
+            - task_key: silver_mso_int
+            - task_key: silver_mso_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_gold_mso_con_data_model.id}
+            full_refresh: false
+        - task_key: gold_mso_fact_int
+          depends_on:
+            - task_key: gold_mso_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_gold_mso_fact_int_data_model.id}
+            full_refresh: false
+        - task_key: gold_mso_bridge_con
+          depends_on:
+            - task_key: gold_mso_fact_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_gold_mso_bridge_con_data_model.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_mso_con:
+      name: ${bundle.target}_dlt_bronze_mso_con
+      serverless: true
+      tags:
+        source: 'mso'
+        class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/bronze_merges/mso/nb_dlt_bronze_con_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: bronze_mso_con
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      environment:
+        dependencies:
+          - --no-index --find-links "/Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/" "/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl"
+      event_log:
+        name: dlt_bronze_mso_con
+        schema: event_log
+        catalog: ${bundle.target}_logs             
+
+    dlt_bronze_mso_int:
+      name: ${bundle.target}_dlt_bronze_mso_int
+      serverless: true
+      #photon: true
+      tags:
+        source: 'mso'
+        class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/bronze_merges/mso/nb_dlt_bronze_int_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: bronze_mso_int
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      environment:
+        dependencies:
+          - --no-index --find-links "/Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/" "/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl"
+      event_log:
+        name: dlt_bronze_mso_int
+        schema: event_log
+        catalog: ${bundle.target}_logs             
+
+    dlt_silver_mso_con_data_model:
+      name: ${bundle.target}_dlt_silver_mso_con_data_model
+      serverless: true      
+      tags:
+        source: 'mso'
+        class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/silver_models/mso_data_model/nb_dlt_update_silver_con_mso_py.ipynb"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: silver_con
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      environment:
+        dependencies:
+          - --no-index --find-links "/Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/" "/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl"
+      event_log:
+        name: dlt_silver_mso_con_data_model
+        schema: event_log
+        catalog: ${bundle.target}_logs             
+
+    dlt_silver_mso_int_data_model:
+      name: ${bundle.target}_dlt_silver_mso_int_data_model
+      serverless: true      
+      tags:
+        source: 'mso'
+        class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/silver_models/mso_data_model/nb_dlt_update_silver_int_mso_py.ipynb"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: silver_int
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      environment:
+        dependencies:
+          - --no-index --find-links "/Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/" "/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl"
+      event_log:
+        name: dlt_silver_mso_int_data_model
+        schema: event_log
+        catalog: ${bundle.target}_logs             
+
+    dlt_gold_mso_con_data_model:
+      name: ${bundle.target}_dlt_gold_mso_con_data_model
+      serverless: true     
+      tags:
+        source: 'mso'
+        class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/gold_models/mso_data_model/nb_dlt_update_gold_con_mso_dim_py.py"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: gold_con
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      environment:
+        dependencies:
+          - --no-index --find-links "/Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/" "/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl"
+      event_log:
+        name: dlt_gold_mso_con_data_model
+        schema: event_log
+        catalog: ${bundle.target}_logs             
+
+    dlt_gold_mso_fact_int_data_model:
+      name: ${bundle.target}_dlt_gold_mso_fact_int_data_model
+      serverless: true      
+      tags:
+        source: 'mso'
+        class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/gold_models/mso_data_model/nb_dlt_update_gold_int_mso_fact_py.py"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: gold_int
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      environment:
+        dependencies:
+          - --no-index --find-links "/Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/" "/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl"
+      event_log:
+        name: dlt_gold_mso_fact_int_data_model
+        schema: event_log
+        catalog: ${bundle.target}_logs             
+
+    dlt_gold_mso_bridge_con_data_model:
+      name: ${bundle.target}_dlt_gold_mso_bridge_con_data_model
+      serverless: true      
+      tags:
+        source: 'mso'
+        class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/gold_models/mso_data_model/nb_dlt_update_gold_con_mso_bridge_py.py"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: gold_con
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      environment:
+        dependencies:
+          - --no-index --find-links "/Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/" "/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl"
+      event_log:
+        name: dlt_gold_mso_bridge_con_data_model
+        schema: event_log
+        catalog: ${bundle.target}_logs             

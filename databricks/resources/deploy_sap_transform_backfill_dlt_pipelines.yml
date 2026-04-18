@@ -1,0 +1,75 @@
+resources:
+  jobs:
+    run_transform_backfill_dlt_pipelines:
+      name: ${bundle.target}_job_run_sap_transform_backfill_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_sap_transform_backfill_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_sap_transform_backfill_con.id}
+            full_refresh: false
+        - task_key: silver_sap_transform_con
+          depends_on:
+            - task_key: bronze_sap_transform_backfill_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_sap_transform_backfill_con.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_sap_transform_backfill_con:
+      name: ${bundle.target}_dlt_bronze_sap_transform_backfill_con
+      tags:
+        source: 'sap'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'sap'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/sap_transform_backfill/nb_dlt_bronze_con_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+      target: bronze_sap_transform_backfill_con
+      catalog: ${bundle.target}_catalog
+
+    dlt_silver_sap_transform_backfill_con:
+      name: ${bundle.target}_dlt_silver_sap_transform_backfill_con
+      tags:
+        source: 'sap'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'sap'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/silver_models/sap_transform_data_model/nb_dlt_update_silver_con_sap_transform_py.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+      target: silver_con
+      catalog: ${bundle.target}_catalog

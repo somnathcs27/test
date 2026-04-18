@@ -1,0 +1,60 @@
+resources:
+  jobs:
+    load_gold_mdp_dim_customer:
+      name: ${bundle.target}_load_gold_mdp_dim_customer
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      trigger:
+        pause_status: UNPAUSED
+        file_arrival:
+          url: abfss://metadata@${var.DATALAKE_NAME_INT}.dfs.core.windows.net/trigger_files/DATAVERSE/
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: ${var.serverless_env_ver}
+            dependencies:
+              - --no-index
+              - --find-links /Volumes/${bundle.target}_catalog/common_libraries/wheelhouse/
+              - /Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_${var.common_libs_beta_ver_underscore}/mdp_databricks_common-${var.common_libs_beta_ver}-py3-none-any.whl
+      tasks:
+        - task_key: load_gold_customer_dim_dataverse_py
+          environment_key: default
+          notebook_task:
+            notebook_path: "../src/gold_models/dataverse_data_model/load_gold_customer_dim_dataverse_py.py"
+            base_parameters:
+              catalog: ${bundle.target}_catalog
+              env_var: ${bundle.target}
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+        - task_key: post_error
+          environment_key: default
+          depends_on:
+            - task_key: load_gold_customer_dim_dataverse_py
+          run_if: AT_LEAST_ONE_FAILED
+          notebook_task:
+            notebook_path: "../src/workflow_job_control/nb_workflow_control_manage_dependency_py.py"
+            base_parameters:
+              adls2_storage_account: ${var.DATALAKE_NAME_INT}
+              catalog: ${bundle.target}_catalog
+              env_var: ${bundle.target}
+              job_name: "{{job.name}}"
+              error_detail: MDP Gold job failure
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+        - task_key: run_dependency_management
+          environment_key: default
+          depends_on:
+            - task_key: load_gold_customer_dim_dataverse_py
+          notebook_task:
+            notebook_path: "../src/workflow_job_control/nb_workflow_control_manage_dependency_py.py"
+            base_parameters:
+              adls2_storage_account: ${var.DATALAKE_NAME_INT}
+              catalog: ${bundle.target}_catalog
+              env_var: ${bundle.target}
+              job_name: "{{job.name}}"
+              error_detail: ""
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+      queue:
+        enabled: true

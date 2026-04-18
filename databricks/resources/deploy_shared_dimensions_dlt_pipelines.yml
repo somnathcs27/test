@@ -1,0 +1,44 @@
+resources:
+  jobs:
+    run_shared_dlt_pipelines:
+      name: ${bundle.target}_job_run_shared_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      schedule:
+        quartz_cron_expression: 11 0 0 * * ?
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: Gold_Shared_Dimensions
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_gold_shared_dimensions_int.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_gold_shared_dimensions_int:
+      name: ${bundle.target}_dlt_gold_shared_dimensions_int
+      tags:
+        source: 'shared_dimensions'
+        class: 'int'
+      clusters:
+        - label: default
+          node_type_id: Standard_F4s
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'shared_dimensions'
+            class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/gold_models/shared_dimensions/nb_dlt_update_gold_int_shared_dimensions.py"
+      configuration:
+        pipelines.dropInactiveTables: true
+      target: gold_int
+      catalog: ${bundle.target}_catalog

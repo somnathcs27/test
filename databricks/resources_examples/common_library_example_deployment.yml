@@ -1,0 +1,31 @@
+resources:
+
+  jobs:
+    run_common_library_example_job:
+      name: ${bundle.target}_run_common_library_example_job
+      tasks:
+        - task_key: common_library_example
+          notebook_task:
+            notebook_path: "../examples/use_common_libs_example_inside_asset_bundles.py"
+            base_parameters:
+              catalog: ${bundle.target}_catalog
+          job_cluster_key: job_cluster
+
+      # This shows how to pull in the mdp_databricks_common library. Be careful you have the RIGHT VERSION here.
+        - whl: dbfs:/Volumes/${bundle.target}_catalog/common_libraries/mdp_databricks_common_0_2/mdp_databricks_common-0.2-py3-none-any.whl
+
+      job_clusters:
+        - job_cluster_key: job_cluster
+          new_cluster:
+            spark_version: 13.3.x-scala2.12
+            # Standard_DS3_v2 has 4 vCPUs (14 GB RAM)
+            # It is suitable for deployment or light data engineering workloads
+            # NOT suitable not for substantive data-engineering workloads
+            node_type_id: Standard_DS3_v2
+            autoscale:
+              # Limit to only one worker because this is a very lightweight deployment job
+              min_workers: 1
+              max_workers: 1
+
+      queue:
+        enabled: true

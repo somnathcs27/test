@@ -1,0 +1,75 @@
+resources:
+  jobs:
+    run_bottomline_dlt_pipelines:
+      name: ${bundle.target}_job_run_bottomline_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_bottomline_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_bottomline_con.id}
+            full_refresh: false
+        - task_key: silver_bottomline_con
+          depends_on:
+            - task_key: bronze_bottomline_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_bottomline_con_data_model.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_bottomline_con:
+      name: ${bundle.target}_dlt_bronze_bottomline_con
+      tags:
+        source: 'bottomline'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'bottomline'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/bottomline/nb_dlt_bronze_con_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: bronze_bottomline_con
+      catalog: ${bundle.target}_catalog
+
+    dlt_silver_bottomline_con_data_model:
+      name: ${bundle.target}_dlt_silver_bottomline_con_data_model
+      tags:
+        source: 'bottomline'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'bottomline'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/silver_models/bottomline_data_model/nb_dlt_update_silver_con_bottomline_py.py"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: silver_con
+      catalog: ${bundle.target}_catalog

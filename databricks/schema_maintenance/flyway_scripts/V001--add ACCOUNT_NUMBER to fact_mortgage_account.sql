@@ -1,0 +1,2 @@
+-- {"check_type":"column_not_present", "table_schema":"gold_con", "table_name":"fact_mortgage_account", "column_name":"ACCOUNT_NUMBER"}
+ALTER TABLE {catalog_name}.gold_con.fact_mortgage_account ADD COLUMNS (ACCOUNT_NUMBER STRING AFTER FK_REGISTERED_PAYMENT_DATE)

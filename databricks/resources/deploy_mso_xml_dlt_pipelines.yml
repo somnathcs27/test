@@ -1,0 +1,76 @@
+resources:
+  jobs:
+    run_mso_xml_dlt_pipelines:
+      name: ${bundle.target}_job_run_mso_xml_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_mso_xml_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_mso_xml_int.id}
+            full_refresh: false
+        - task_key: silver_mso_xml_int
+          depends_on:
+            - task_key: bronze_mso_xml_int
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_mso_xml_int_data_model.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_mso_xml_int:
+      name: ${bundle.target}_dlt_bronze_mso_xml_int
+      tags:
+        source: 'mso_xml'
+        class: 'int'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'mso_xml'
+            class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/mso_xml/nb_dlt_bronze_int_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: bronze_mso_xml_int
+      catalog: ${bundle.target}_catalog
+
+    dlt_silver_mso_xml_int_data_model:
+      name: ${bundle.target}_dlt_silver_mso_xml_int_data_model
+      tags:
+        source: 'mso_xml'
+        class: 'int'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'mso_xml'
+            class: 'int'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/silver_models/mso_xml_data_model/nb_dlt_update_silver_int_mso_xml_py.py"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: silver_int
+      catalog: ${bundle.target}_catalog

@@ -1,0 +1,18 @@
+resources:
+  pipelines:
+    pipeline_dlt_bronze_dataverse_con:
+      name: dlt_bronze_dataverse_con
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 5
+            mode: ENHANCED
+      libraries:
+        - notebook:
+            # This path looks wrong - but there's no more correct path to point it at in the main branch yet.
+            path: /Users/14839@lhbs.net/databricks_msm/src/1.
+              bronze_merges/dataverse/combine_dataverse_data_and_metadata
+      target: bronze_dataverse_con
+      channel: PREVIEW
+      catalog: ${bundle.target}_catalog

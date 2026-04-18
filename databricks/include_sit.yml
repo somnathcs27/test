@@ -1,0 +1,6 @@
+# includes for test
+#   This is not envisaged to be a long-term pattern. Once development stabilises, everything should go through the resources folder, and there should only be one include
+include:
+  - resources/*.yml
+  - resources_for_quality_engineering/*.yml
+  - resources_core_non_prod/*.yml

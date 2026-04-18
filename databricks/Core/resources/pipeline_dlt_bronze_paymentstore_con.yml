@@ -1,0 +1,18 @@
+resources:
+  pipelines:
+    pipeline_dlt_bronze_paymentstore_con:
+      name: dlt_bronze_paymentstore_con
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 5
+            mode: ENHANCED
+      libraries:
+        - notebook:
+            # This path looks wrong - should be relative ../src - but there's no more correct path to point it at in the main branch yet.       
+            path: /Repos/14793@lhbs.net/databricks/1.
+              bronze_merges/paymentstore/nb_dlt_bronze_con_data_model
+      target: bronze_paymentstore_con
+      development: true
+      catalog: ${bundle.target}_catalog

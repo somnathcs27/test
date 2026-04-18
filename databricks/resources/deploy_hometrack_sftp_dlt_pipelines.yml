@@ -1,0 +1,77 @@
+resources:
+  jobs:
+    run_hometrack_sftp_dlt_pipelines:
+      name: ${bundle.target}_job_run_hometrack_sftp_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_hometrack_sftp_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_hometrack_sftp_con.id}
+            full_refresh: false
+        - task_key: silver_hometrack_sftp_con
+          depends_on:
+            - task_key: bronze_hometrack_sftp_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_hometrack_sftp_con_data_model.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_hometrack_sftp_con:
+      name: ${bundle.target}_dlt_bronze_hometrack_sftp_con
+      tags:
+        source: 'hometrack'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'hometrack'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/hometrack_sftp/nb_dlt_bronze_con_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: bronze_hometrack_sftp_con
+      catalog: ${bundle.target}_catalog
+
+    dlt_silver_hometrack_sftp_con_data_model:
+      name: ${bundle.target}_dlt_silver_hometrack_con_data_model
+      tags:
+        source: 'hometrack'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'hometrack'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/3_4_1/${bundle.target}_include_mdp_databricks_common_3_4_1.py"
+        - notebook:
+            path: "../src/silver_models/hometrack_data_model/nb_dlt_update_silver_con_hometrack_py.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: silver_con
+      catalog: ${bundle.target}_catalog

@@ -1,0 +1,116 @@
+
+bundle:
+  name: lbs_bundle
+
+# includes are in separate environment specific files: include_dev.yml include_test.yml include_prod.yml
+
+#run_as:
+#  user_name: robert.meldrum@ans.co.uk
+  #service_principal_name: <service-principal-name>
+
+# These variables branch between environments because the branching is done at the ADO level.
+variables:
+  ENTRA_MANAGEMENT_GROUP_NAME:
+    description: Entra group which governs the management of the resouces in this bundle
+    default: aad_grp_data_d_dbw001_user
+  DATALAKE_NAME_CON:
+    description: The name of the confidential datalake to be used by data engineering implementation in this bundle
+    default: this_place_holder_should_break
+  DATALAKE_NAME_INT:
+    description: The name of the internal datalake to be used by data engineering implementation in this bundle
+    default: this_place_holder_should_break
+  DATALAKE_NAME_PUB:
+    description: The name of the public datalake to be used by data engineering implementation in this bundle
+    default: this_place_holder_should_break
+  DATALAKE_NAME_SEC:
+    description: The name of the secret datalake to be used by data engineering implementation in this bundle
+    default: this_place_holder_should_break
+  all_purpose_cluster_id:
+    description: The id of an all purpose cluster. This is set in a prior ADO task, and injected in.
+    default: this_place_holder_should_break
+  gold_cluster_id:
+    description: The id of a cluster for gold jobs specifically. This is set in a prior ADO task, and injected in.
+    default: this_place_holder_should_break
+  job_failure_notification_destination_id:
+    description: The ID of the Databricks Job Failure notification destination ID.
+    default: this_placeholder_should_break
+  common_libs_lts_ver:
+    description: The LTS (Long Term Support) version of mdp_databricks_common library
+    default: this_placeholder_should_break
+  common_libs_lts_ver_underscore:
+    description: The LTS (Long Term Support) version of mdp_databricks_common library with underscores
+    default: this_placeholder_should_break
+  common_libs_beta_ver:
+    description: The beta version of mdp_databricks_common library
+    default: this_placeholder_should_break
+  common_libs_beta_ver_underscore:
+    description: The beta version of mdp_databricks_common library with underscores
+    default: this_placeholder_should_break
+  boe_base_rate:
+    description: bank of england base rate
+    default: this_placeholder_should_break
+  service_principal_account_statements:
+    description: The service principal for account statements
+    default: this_placeholder_should_break
+  service_principal_account_statements_2:
+    description: The second service principal for account statements (SIT only)
+    default: ""
+  service_principal_account_statements_3:
+    description: The third service principal for account statements (SIT only)
+    default: ""    
+  service_principal_bi_ods:
+    description: The service principal for BI ODS
+    default: this_placeholder_should_break
+  service_principal_sap_hana:
+    description: The service principal for SAP Hana
+    default: this_placeholder_should_break
+  service_principal_power_bi:
+    description: The service principal for Power BI
+    default: this_placeholder_should_break
+  serverless_env_ver:
+    description: The serverless environment version
+    default: this_placeholder_should_break
+
+permissions:
+  - level: CAN_MANAGE
+    group_name: ${var.ENTRA_MANAGEMENT_GROUP_NAME}
+
+targets:
+  dev:
+    # Mode set to development that set the following behaviours:
+    # - Deployed resources get prefixed with '[dev my_user_name]'
+    # - Any job schedules and triggers are paused by default
+    # - The 'development' mode is used for Delta Live Tables pipelines
+    mode: production
+    default: true
+    workspace:
+      host: https://adb-7913207224148365.5.azuredatabricks.net
+      # Not setting the root_path in development mode because this is either ~/ or a username. Leave this to the service principal.
+      # This works differently in production mode (test and prod) which deploy the asset bundles to the /Workspace/Shared/lbs_bundle folder
+      #root_path: /Workspace/Shared/Bundles
+
+  tst:
+    mode: production
+    workspace:
+      host: https://adb-2163502187688011.11.azuredatabricks.net/
+      root_path: /Workspace/Shared/Bundles
+
+  sit:
+    mode: production
+    workspace:
+      host: https://adb-4309925217161404.4.azuredatabricks.net/
+      root_path: /Workspace/Shared/Bundles
+    resources:
+      sql_warehouses:
+        account_statements_warehouse:
+          permissions:
+            - service_principal_name: "${var.service_principal_account_statements_2}"
+              level: CAN_USE
+            - service_principal_name: "${var.service_principal_account_statements_3}"
+              level: CAN_USE
+
+  prod:
+    mode: production
+    workspace:
+      host: https://adb-5804679689453151.11.azuredatabricks.net/
+      root_path: /Workspace/Shared/Bundles

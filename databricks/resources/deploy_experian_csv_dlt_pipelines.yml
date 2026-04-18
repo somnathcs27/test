@@ -1,0 +1,43 @@
+resources:
+  jobs:
+    run_experian_csv_dlt_pipelines:
+      name: ${bundle.target}_job_run_experian_csv_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_experian_csv_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_experian_csv_con.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_experian_csv_con:
+      name: ${bundle.target}_dlt_bronze_experian_csv_con
+      tags:
+        source: 'experian_csv'
+        class: 'con'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'experian_csv'
+            class: 'con'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/experian_csv/nb_dlt_bronze_con_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      target: bronze_experian_con
+      catalog: ${bundle.target}_catalog

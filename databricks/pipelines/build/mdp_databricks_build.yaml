@@ -1,0 +1,114 @@
+---
+trigger:
+  branches:
+    include:
+      - '*'
+
+parameters:
+  - name: run_sonar
+    displayName: Run sonar tasks?
+    type: boolean
+    default: false
+
+variables:
+  - group: sonar_cloud_var_group
+  - name: majorMinorVersion
+    value: 1.0
+  - name: revision
+    value: $[counter(variables['majorMinorVersion'], 1)]
+  - name: isPreRelease
+    ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+      value: ''
+    ${{ else }}:
+      value: '-PreRelease'
+  - name: version
+    value: $(majorMinorVersion).$(revision)$(isPreRelease)
+
+name: '$(majorMinorVersion).$(revision)$(isPreRelease) - $(Build.DefinitionName)_$(Date:yyyyMMdd).$(Rev:r)'
+
+stages:
+  - stage: stage_build_mdp_databricks
+    displayName: Build MDP Databricks
+    jobs:
+      - job: job_build_mdp_databricks
+        displayName: Build MDP Databricks
+        pool:
+          name: 'LBS Self Hosted Default'
+        steps:
+          - template: ../verify_databricks.yml
+          - checkout: self
+            displayName: 'Checkout $(Build.Repository.Name) Repository'
+            clean: true
+            persistCredentials: true
+
+          - task: SonarCloudPrepare@3
+            condition: ${{ eq(parameters.run_sonar, true) }}
+            inputs:
+              SonarCloud: $(sonar_cloud_connection)
+              organization: $(sonar_cloud_organisation_name)
+              scannerMode: 'cli'
+              projectKey: LeedsBuildingSociety_MDP_Databricks
+              projectName: 'databricks'
+              extraProperties: |
+                sonar.exclusions="**/bin/**/*,**/obj/**/*,**/Migrations/**,**/*.dll,**/*.yaml,**/*.yml"
+                sonar.coverage.exclusions="test/**"
+                sonar.cs.roslyn.ignoreIssues=true
+                sonar.verbose=true
+                sonar.projectKey=LeedsBuildingSociety_MDP_Databricks
+            displayName: Prepare SonarCloud Analysis
+
+          - script: |
+              type databricks_main_template.yml include_dev.yml > dev_databricks.yml
+              type databricks_main_template.yml include_sit.yml > sit_databricks.yml
+              type databricks_main_template.yml include_tst.yml > tst_databricks.yml
+              type databricks_main_template.yml include_prod.yml > prod_databricks.yml
+              echo "Combined databricks.yml:"
+            displayName: Build Databricks Asset Bundles
+
+          - task: SonarCloudAnalyze@3
+            condition: ${{ eq(parameters.run_sonar, true) }}
+            displayName: Run SonarCloud Analysis
+
+          - task: SonarCloudPublish@3
+            condition: ${{ eq(parameters.run_sonar, true) }}
+            inputs:
+              pollingTimeoutSec: '300'
+            displayName: Publish SonarCloud Analysis
+
+          - script: |
+              git tag $(version)
+              git push origin $(version)
+            displayName: Create Git Tag
+            workingDirectory: $(Build.SourcesDirectory)
+
+          - task: CopyFiles@2
+            displayName: Copy Artifact Files
+            inputs:
+              SourceFolder: $(Build.SourcesDirectory)
+              Contents: |
+                **/**/*_databricks.yml
+                **/**/include_*.yml
+                **/**/*.ps1
+                resources/**
+                resources_examples/**
+                resources_in_development/**
+                resources_for_quality_engineering/**
+                resources_core_non_prod/**
+                schema_maintenance/**
+                foreign_catalog/**
+                AI_Work/**
+                Core/**
+                data_quality/**
+                fixtures/**
+                init_scripts/**
+                src/**
+              TargetFolder: $(Build.ArtifactStagingDirectory)
+              CleanTargetFolder: true
+              Overwrite: true
+              flattenFolders: false
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish Build Artifact for version $(version)
+            inputs:
+              PathtoPublish: $(Build.ArtifactStagingDirectory)
+              ArtifactName: drop

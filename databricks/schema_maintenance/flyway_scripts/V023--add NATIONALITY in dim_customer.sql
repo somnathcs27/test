@@ -1,0 +1,2 @@
+-- {"check_type":"column_not_present", "table_schema":"gold_con", "table_name":"dim_customer", "column_name":"NATIONALITY"}
+ALTER TABLE {catalog_name}.gold_con.dim_customer ADD COLUMNS (NATIONALITY STRING AFTER AGE)

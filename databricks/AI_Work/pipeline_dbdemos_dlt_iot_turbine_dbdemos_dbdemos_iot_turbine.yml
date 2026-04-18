@@ -1,0 +1,24 @@
+resources:
+  pipelines:
+    pipeline_dbdemos_dlt_iot_turbine_dbdemos_dbdemos_iot_turbine:
+      name: dbdemos_dlt_iot_turbine_dbdemos_dbdemos_iot_turbine
+      clusters:
+        - label: default
+          custom_tags:
+            project: dbdemos
+            demo: lakehouse-iot-platform
+            demo_install_date: "2024-09-18"
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: LEGACY
+      libraries:
+        - notebook:
+            path: /Users/8554@lhbs.net/lakehouse-iot-platform/01-Data-ingestion/01.1-DLT-Wind-Turbine-SQL
+        - notebook:
+            path: /Users/8554@lhbs.net/lakehouse-iot-platform/01-Data-ingestion/01.2-DLT-Wind-Turbine-SQL-UDF
+      #configuration:
+      #  bundle.sourcePath: /Workspace/${workspace.file_path}/src
+      target: dbdemos_iot_turbine #_${bundle.environment}
+      channel: PREVIEW
+      catalog: dbdemos

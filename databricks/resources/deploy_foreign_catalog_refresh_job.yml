@@ -1,0 +1,36 @@
+resources:
+
+  jobs:
+    run_foreign_catalog_refresh_job:
+      name: ${bundle.target}_run_foreign_catalog_refresh_job
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: refresh_foreign_catalogs
+          notebook_task:
+            notebook_path: "../foreign_catalog/nb_lbs_refresh_foreign_catalog_py.py"
+            base_parameters:
+              env_var: ${bundle.target}
+              common_libs_lts_ver: ${var.common_libs_lts_ver}
+              common_libs_lts_ver_underscore: ${var.common_libs_lts_ver_underscore}
+          job_cluster_key: job_cluster
+
+      job_clusters:
+        - job_cluster_key: job_cluster
+          new_cluster:
+            spark_version: 13.3.x-scala2.12
+            # Standard_F4s
+            # It is suitable for deployment or light data engineering workloads
+            # NOT suitable not for substantive data-engineering workloads
+            node_type_id: Standard_F4s
+            autoscale:
+              # Limit to only one worker because this is a very lightweight deployment job
+              min_workers: 1
+              max_workers: 1
+            custom_tags:
+              source: 'foreign_catalog_refresh'
+              class: 'all'
+
+      queue:
+        enabled: true

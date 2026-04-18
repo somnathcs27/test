@@ -1,0 +1,546 @@
+---
+resources:
+  pipelines:
+    - pipeline: MdpDatabricksBuild
+      source: MDP_Databricks_Build
+      trigger:
+        branches:
+          include:
+            - '*'
+parameters:
+  - name: reports_only
+    displayName: Reports Only Mode
+    type: string
+    default: 'On'
+    values:
+      - 'On'
+      - 'Off'
+  - name: deployDev
+    displayName: Deploy to development environment?
+    type: boolean
+    default: true
+  - name: deploySit
+    displayName: Deploy to SIT environment?
+    type: boolean
+    default: false
+  - name: deployTst
+    displayName: Deploy to TST environment?
+    type: boolean
+    default: false
+  - name: deployProd
+    displayName: Deploy to production environment?
+    type: boolean
+    default: false
+  - name: MDPCommonLibsVersion
+    displayName: Common Libraries Version
+    type: string
+    default: '3.3.0-rc-1'
+
+variables:
+  - group: 'var_group_dev_cicd'
+  - group: 'var_group_sit_cicd'
+  - group: 'var_group_tst_cicd'
+  - group: 'var_group_prod_cicd'
+  - name: reports_only_mode
+    ${{ if eq(parameters['reports_only'], 'On') }}:
+      value: 1
+    ${{ else }}:
+      value: 0
+  - name: reports_only_desc
+    ${{ if eq(parameters['reports_only'], 'On') }}:
+      value: 'Reports Only'
+    ${{ else }}:
+      value: 'Deploy'
+  - name: artifact_folder
+    value: $(Pipeline.Workspace)/MdpDatabricksBuild/drop
+  - name: isMain
+    value: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+  - name: isReleaseBranch
+    value: $[startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')]
+  - name: databricks_job_failure_notification_destination_id
+    value: ''
+
+name: '$(Build.DefinitionName)_$(reports_only_desc)_$(Date:yyyyMMdd).$(Rev:r)'
+
+stages:
+  - stage: stage_dev_release
+    condition: ${{ eq(parameters.deployDev, true) }}
+    displayName: Deploy MDP Databricks to Dev
+    jobs:
+      - deployment: deploy_mdp_databricks_dev
+        displayName: Deploy MDP Databricks to Dev
+        pool:
+          name: 'LBS Self Hosted Default'
+        workspace:
+          clean: all
+        environment: Development
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: Powershell@2
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Write-Host "Re-runs of release stages are not allowed."
+                      exit 1
+                  displayName: Fail Build if Re-run
+                  condition: gt(variables['System.StageAttempt'], 1)
+
+                - task: AzureKeyVault@2
+                  inputs:
+                    azureSubscription: '$(dev_az_service_connection_name)'
+                    KeyVaultName: '$(dev_az_keyvault_name)'
+                    SecretsFilter: 'aad-sp-ado-databricks-clientid,aad-sp-ado-databricks-client-secret,DataBricksForeignCatlog-az-lbs-data-d-mdp-workflow-control-sqldb001001,DataBricksForeignCatlog-az-lbs-data-d-mdp-workflow-control-sqldb001001-client-id'
+
+                - ${{ if eq(parameters.reports_only, 'On') }}:
+                    - template: mdp_databricks_release_reports_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'dev'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(dev_asset_bundle_group_name)
+                        databricks_repo_id: $(dev_databricks_repo_id)
+                        cluster_id: $(dev_databricks_default_cluster_id)
+                        gold_cluster_id: $(dev_databricks_gold_cluster_id)
+                        databricks_host: $(dev_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(dev_datalake_name_con)
+                        datalake_name_int: $(dev_datalake_name_int)
+                        datalake_name_pub: $(dev_datalake_name_pub)
+                        datalake_name_sec: $(dev_datalake_name_sec)
+                        common_libs_lts_ver: $(dev_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(dev_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(dev_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(dev_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(dev_boe_base_rate)
+                        service_principal_account_statements: $(dev_service_principal_account_statements)
+                        service_principal_account_statements_2: $(dev_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(dev_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(dev_service_principal_bi_ods)
+                        service_principal_sap_hana: $(dev_service_principal_sap_hana)
+                        service_principal_power_bi: $(dev_service_principal_power_bi)
+                        serverless_env_ver: $(dev_serverless_env_ver)
+
+                - ${{ if eq(parameters.reports_only, 'Off') }}:
+                    - template: mdp_databricks_release_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'dev'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(dev_asset_bundle_group_name)
+                        databricks_repo_id: $(dev_databricks_repo_id)
+                        cluster_id: $(dev_databricks_default_cluster_id)
+                        gold_cluster_id: $(dev_databricks_gold_cluster_id)
+                        databricks_host: $(dev_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(dev_datalake_name_con)
+                        datalake_name_int: $(dev_datalake_name_int)
+                        datalake_name_pub: $(dev_datalake_name_pub)
+                        datalake_name_sec: $(dev_datalake_name_sec)
+                        oauth_client_id: $(DataBricksForeignCatlog-az-lbs-data-d-mdp-workflow-control-sqldb001001-client-id)
+                        oauth_client_secret: $(DataBricksForeignCatlog-az-lbs-data-d-mdp-workflow-control-sqldb001001)
+                        oauth_tenant_id: $(tenant_id)
+                        workflow_db_host: $(dev_workflow_db_host)
+                        workflow_db_name: $(dev_workflow_db_name)
+                        job_failure_notification_display_name: $(dev_databricks_job_failure_notification_display_name)
+                        job_failure_webhook_url: $(dev_databricks_teams_job_failure_webhook_url)
+                        common_libs_lts_ver: $(dev_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(dev_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(dev_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(dev_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(dev_boe_base_rate)
+                        service_principal_account_statements: $(dev_service_principal_account_statements)
+                        service_principal_account_statements_2: $(dev_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(dev_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(dev_service_principal_bi_ods)
+                        service_principal_sap_hana: $(dev_service_principal_sap_hana)
+                        service_principal_power_bi: $(dev_service_principal_power_bi)
+                        serverless_env_ver: $(dev_serverless_env_ver)
+
+  - stage: stage_sit_release
+    # SIT releases are allowed if (strongest conditions first):
+    # - main or release branch base.
+    # - and deploySit = true.
+    # - and no prior failure.
+    condition: |
+      and(
+        and(
+          not(
+            failed()
+          ),
+          ${{ eq(parameters.deploySit, true) }}
+        ),
+        or(
+          eq(variables.isMain, true),
+          eq(variables.isReleaseBranch, true)
+        )
+      )
+    displayName: Deploy MDP Databricks to SIT
+    jobs:
+      - deployment: deploy_mdp_databricks_sit
+        displayName: Deploy MDP Databricks to SIT
+        pool:
+          name: 'LBS Self Hosted Default'
+        workspace:
+          clean: all
+        environment: System Integration Test
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: Powershell@2
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Write-Host "Re-runs of release stages are not allowed."
+                      exit 1
+                  displayName: Fail Build if Re-run
+                  condition: gt(variables['System.StageAttempt'], 1)
+
+                - task: AzureKeyVault@2
+                  inputs:
+                    azureSubscription: '$(sit_az_service_connection_name)'
+                    KeyVaultName: '$(sit_az_keyvault_name)'
+                    SecretsFilter: 'aad-sp-ado-databricks-clientid,aad-sp-ado-databricks-client-secret,DataBricksForeignCatlog-az-lbs-data-s-mdp-workflow-control-sqldb001001,DataBricksForeignCatlog-az-lbs-data-s-mdp-workflow-control-sqldb001001-client-id'
+
+                - ${{ if eq(parameters.reports_only, 'On') }}:
+                    - template: mdp_databricks_release_reports_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'sit'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(sit_asset_bundle_group_name)
+                        databricks_repo_id: $(sit_databricks_repo_id)
+                        cluster_id: $(sit_databricks_default_cluster_id)
+                        gold_cluster_id: $(sit_databricks_gold_cluster_id)
+                        databricks_host: $(sit_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(sit_datalake_name_con)
+                        datalake_name_int: $(sit_datalake_name_int)
+                        datalake_name_pub: $(sit_datalake_name_pub)
+                        datalake_name_sec: $(sit_datalake_name_sec)
+                        common_libs_lts_ver: $(sit_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(sit_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(sit_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(sit_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(sit_boe_base_rate)
+                        service_principal_account_statements: $(sit_service_principal_account_statements)
+                        service_principal_account_statements_2: $(sit_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(sit_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(sit_service_principal_bi_ods)
+                        service_principal_sap_hana: $(sit_service_principal_sap_hana)
+                        service_principal_power_bi: $(sit_service_principal_power_bi)
+                        serverless_env_ver: $(sit_serverless_env_ver)
+
+                - ${{ if eq(parameters.reports_only, 'Off') }}:
+                    - template: mdp_databricks_release_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'sit'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(sit_asset_bundle_group_name)
+                        databricks_repo_id: $(sit_databricks_repo_id)
+                        cluster_id: $(sit_databricks_default_cluster_id)
+                        gold_cluster_id: $(sit_databricks_gold_cluster_id)
+                        databricks_host: $(sit_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(sit_datalake_name_con)
+                        datalake_name_int: $(sit_datalake_name_int)
+                        datalake_name_pub: $(sit_datalake_name_pub)
+                        datalake_name_sec: $(sit_datalake_name_sec)
+                        oauth_client_id: $(DataBricksForeignCatlog-az-lbs-data-s-mdp-workflow-control-sqldb001001-client-id)
+                        oauth_client_secret: $(DataBricksForeignCatlog-az-lbs-data-s-mdp-workflow-control-sqldb001001)
+                        oauth_tenant_id: $(tenant_id)
+                        workflow_db_host: $(sit_workflow_db_host)
+                        workflow_db_name: $(sit_workflow_db_name)
+                        job_failure_notification_display_name: $(sit_databricks_job_failure_notification_display_name)
+                        job_failure_webhook_url: $(sit_databricks_teams_job_failure_webhook_url)
+                        common_libs_lts_ver: $(sit_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(sit_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(sit_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(sit_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(sit_boe_base_rate)
+                        service_principal_account_statements: $(sit_service_principal_account_statements)
+                        service_principal_account_statements_2: $(sit_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(sit_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(sit_service_principal_bi_ods)
+                        service_principal_sap_hana: $(sit_service_principal_sap_hana)
+                        service_principal_power_bi: $(sit_service_principal_power_bi)
+                        serverless_env_ver: $(sit_serverless_env_ver)
+
+
+  - stage: stage_tst_release
+    # TST releases are allowed if (strongest conditions first):
+    # - main or release branch base.
+    # - and deployTst = true.
+    # - and no prior failure.
+    condition: |
+      and(
+        and(
+          not(
+            failed()
+          ),
+          ${{ eq(parameters.deployTst, true) }}
+        ),
+        or(
+          eq(variables.isMain, true),
+          eq(variables.isReleaseBranch, true)
+        )
+      )
+    displayName: Deploy MDP Databricks to TST
+    jobs:
+      - deployment: deploy_mdp_databricks_tst
+        displayName: Deploy MDP Databricks to TST
+        pool:
+          name: 'LBS Self Hosted Default'
+        workspace:
+          clean: all
+        environment: Test
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: Powershell@2
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Write-Host "Re-runs of release stages are not allowed."
+                      exit 1
+                  displayName: Fail Build if Re-run
+                  condition: gt(variables['System.StageAttempt'], 1)
+
+                - task: AzureKeyVault@2
+                  inputs:
+                    azureSubscription: '$(tst_az_service_connection_name)'
+                    KeyVaultName: '$(tst_az_keyvault_name)'
+                    SecretsFilter: 'aad-sp-ado-databricks-clientid,aad-sp-ado-databricks-client-secret,DataBricksForeignCatlog-az-lbs-data-t-mdp-workflow-control-sqldb001001,DataBricksForeignCatlog-az-lbs-data-t-mdp-workflow-control-sqldb001001-client-id'
+
+                - ${{ if eq(parameters.reports_only, 'On') }}:
+                    - template: mdp_databricks_release_reports_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'tst'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(tst_asset_bundle_group_name)
+                        databricks_repo_id: $(tst_databricks_repo_id)
+                        cluster_id: $(tst_databricks_default_cluster_id)
+                        gold_cluster_id: $(tst_databricks_gold_cluster_id)
+                        databricks_host: $(tst_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(tst_datalake_name_con)
+                        datalake_name_int: $(tst_datalake_name_int)
+                        datalake_name_pub: $(tst_datalake_name_pub)
+                        datalake_name_sec: $(tst_datalake_name_sec)
+                        common_libs_lts_ver: $(tst_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(tst_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(tst_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(tst_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(tst_boe_base_rate)
+                        service_principal_account_statements: $(tst_service_principal_account_statements)
+                        service_principal_account_statements_2: $(tst_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(tst_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(tst_service_principal_bi_ods)
+                        service_principal_sap_hana: $(tst_service_principal_sap_hana)
+                        service_principal_power_bi: $(tst_service_principal_power_bi)
+                        serverless_env_ver: $(tst_serverless_env_ver)
+
+                - ${{ if eq(parameters.reports_only, 'Off') }}:
+                    - template: mdp_databricks_release_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'tst'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(tst_asset_bundle_group_name)
+                        databricks_repo_id: $(tst_databricks_repo_id)
+                        cluster_id: $(tst_databricks_default_cluster_id)
+                        gold_cluster_id: $(tst_databricks_gold_cluster_id)
+                        databricks_host: $(tst_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(tst_datalake_name_con)
+                        datalake_name_int: $(tst_datalake_name_int)
+                        datalake_name_pub: $(tst_datalake_name_pub)
+                        datalake_name_sec: $(tst_datalake_name_sec)
+                        oauth_client_id: $(DataBricksForeignCatlog-az-lbs-data-s-mdp-workflow-control-sqldb001001-client-id)
+                        oauth_client_secret: $(DataBricksForeignCatlog-az-lbs-data-s-mdp-workflow-control-sqldb001001)
+                        oauth_tenant_id: $(tenant_id)
+                        workflow_db_host: $(tst_workflow_db_host)
+                        workflow_db_name: $(tst_workflow_db_name)
+                        job_failure_notification_display_name: $(tst_databricks_job_failure_notification_display_name)
+                        job_failure_webhook_url: $(tst_databricks_teams_job_failure_webhook_url)
+                        common_libs_lts_ver: $(tst_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(tst_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(tst_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(tst_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(tst_boe_base_rate)
+                        service_principal_account_statements: $(tst_service_principal_account_statements)
+                        service_principal_account_statements_2: $(tst_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(tst_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(tst_service_principal_bi_ods)
+                        service_principal_sap_hana: $(tst_service_principal_sap_hana)
+                        service_principal_power_bi: $(tst_service_principal_power_bi)
+                        serverless_env_ver: $(tst_serverless_env_ver)
+
+  - stage: stage_prod_release
+    # Prod releases are allowed if (strongest conditions first):
+    # - release branch base.
+    # - and deployProd = true.
+    # - and no prior failure.
+    condition: |
+      and(
+        and(
+          not(
+            failed()
+          ),
+          ${{ eq(parameters.deployProd, true) }}
+        ),
+        eq(variables.isReleaseBranch, true)
+      )
+    displayName: Deploy MDP Databricks to Production
+    jobs:
+      - deployment: deploy_mdp_databricks_prod
+        displayName: Deploy MDP Databricks to Production
+        pool:
+          name: 'LBS Self Hosted Default'
+        workspace:
+          clean: all
+        environment: Production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: Powershell@2
+                  inputs:
+                    targetType: inline
+                    script: |
+                      Write-Host "Re-runs of release stages are not allowed."
+                      exit 1
+                  displayName: Fail Build if Re-run
+                  condition: gt(variables['System.StageAttempt'], 1)
+
+                - task: AzureKeyVault@2
+                  inputs:
+                    azureSubscription: '$(prod_az_service_connection_name)'
+                    KeyVaultName: '$(prod_az_keyvault_name)'
+                    SecretsFilter: 'aad-sp-ado-databricks-clientid,aad-sp-ado-databricks-client-secret,DataBricksForeignCatlog-az-lbs-data-p-mdp-workflow-control-sqldb001001,DataBricksForeignCatlog-az-lbs-data-p-mdp-workflow-control-sqldb001001-client-id'
+
+                - ${{ if eq(parameters.reports_only, 'On') }}:
+                    - template: mdp_databricks_release_reports_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'prod'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(prod_asset_bundle_group_name)
+                        databricks_repo_id: $(prod_databricks_repo_id)
+                        cluster_id: $(prod_databricks_default_cluster_id)
+                        gold_cluster_id: $(prod_databricks_gold_cluster_id)
+                        databricks_host: $(prod_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(prod_datalake_name_con)
+                        datalake_name_int: $(prod_datalake_name_int)
+                        datalake_name_pub: $(prod_datalake_name_pub)
+                        datalake_name_sec: $(prod_datalake_name_sec)
+                        common_libs_lts_ver: $(prod_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(prod_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(prod_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(prod_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(prod_boe_base_rate)
+                        service_principal_account_statements: $(prod_service_principal_account_statements)
+                        service_principal_account_statements_2: $(prod_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(prod_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(prod_service_principal_bi_ods)
+                        service_principal_sap_hana: $(prod_service_principal_sap_hana)
+                        service_principal_power_bi: $(prod_service_principal_power_bi)
+                        serverless_env_ver: $(prod_serverless_env_ver)
+
+                - ${{ if eq(parameters.reports_only, 'Off') }}:
+                    - template: mdp_databricks_release_template.yaml
+                      parameters:
+                        reports_only: $(reports_only_mode)
+                        environment_shortname: 'prod'
+                        triggering_pipeline_projectId: $(resources.pipeline.MdpDatabricksBuild.projectID)
+                        triggering_pipeline_branchName: $(resources.pipeline.MdpDatabricksBuild.sourceBranch)
+                        triggering_pipeline_pipelineId: $(resources.pipeline.MdpDatabricksBuild.pipelineID)
+                        triggering_pipeline_runId: $(resources.pipeline.MdpDatabricksBuild.runID)
+                        artifact_folder: $(artifact_folder)
+                        entra_management_group_name: $(prod_asset_bundle_group_name)
+                        databricks_repo_id: $(prod_databricks_repo_id)
+                        cluster_id: $(prod_databricks_default_cluster_id)
+                        gold_cluster_id: $(prod_databricks_gold_cluster_id)
+                        databricks_host: $(prod_databricks_host)
+                        databricks_client_id: $(aad-sp-ado-databricks-clientid)
+                        databricks_client_secret: $(aad-sp-ado-databricks-client-secret)
+                        common_libs_version: ${{ parameters.MDPCommonLibsVersion }}
+                        init_script_name: 'msodbc.sh'
+                        datalake_name_con: $(prod_datalake_name_con)
+                        datalake_name_int: $(prod_datalake_name_int)
+                        datalake_name_pub: $(prod_datalake_name_pub)
+                        datalake_name_sec: $(prod_datalake_name_sec)
+                        oauth_client_id: $(DataBricksForeignCatlog-az-lbs-data-p-mdp-workflow-control-sqldb001001-client-id)
+                        oauth_client_secret: $(DataBricksForeignCatlog-az-lbs-data-p-mdp-workflow-control-sqldb001001)
+                        oauth_tenant_id: $(tenant_id)
+                        workflow_db_host: $(prod_workflow_db_host)
+                        workflow_db_name: $(prod_workflow_db_name)
+                        job_failure_notification_display_name: $(prod_databricks_job_failure_notification_display_name)
+                        job_failure_webhook_url: $(prod_databricks_teams_job_failure_webhook_url)
+                        common_libs_lts_ver: $(prod_common_libs_lts_ver)
+                        common_libs_lts_ver_underscore: $(prod_common_libs_lts_ver_underscore)
+                        common_libs_beta_ver: $(prod_common_libs_beta_ver)
+                        common_libs_beta_ver_underscore: $(prod_common_libs_beta_ver_underscore)
+                        boe_base_rate: $(prod_boe_base_rate)
+                        service_principal_account_statements: $(prod_service_principal_account_statements)
+                        service_principal_account_statements_2: $(prod_service_principal_account_statements_2)
+                        service_principal_account_statements_3: $(prod_service_principal_account_statements_3)
+                        service_principal_bi_ods: $(prod_service_principal_bi_ods)
+                        service_principal_sap_hana: $(prod_service_principal_sap_hana)
+                        service_principal_power_bi: $(prod_service_principal_power_bi)
+                        serverless_env_ver: $(prod_serverless_env_ver)

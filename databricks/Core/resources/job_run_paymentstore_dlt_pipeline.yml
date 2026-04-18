@@ -1,0 +1,15 @@
+resources:
+  jobs:      
+    run_paymentstore_dlt_pipeline:
+      name: run_paymentstore_dlt_pipeline
+      tasks:
+        - task_key: bronze_paymentstore_con
+          pipeline_task:
+            pipeline_id: 0d05d4d3-233f-4c2d-8ac9-5d9addf1c1ae
+            full_refresh: false
+        - task_key: bronze_paymentstore_int
+          pipeline_task:
+            pipeline_id: c70c58f3-a86f-4508-b4e5-6f0d717aa471
+            full_refresh: false
+      queue:
+        enabled: true

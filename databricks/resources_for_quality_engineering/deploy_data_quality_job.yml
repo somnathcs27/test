@@ -1,0 +1,29 @@
+resources:
+
+  jobs:
+    run_data_quality_job:
+      name: ${bundle.target}_run_data_quality_job
+      tasks:
+        - task_key: create_schemas
+          notebook_task:
+            notebook_path: "../data_quality/jobs/nb_raw_to_bronze_reconciliation.py"
+            base_parameters:
+              catalog: ${bundle.target}_catalog
+              env_var: ${bundle.target}
+          job_cluster_key: job_cluster
+
+      job_clusters:
+        - job_cluster_key: job_cluster
+          new_cluster:
+            spark_version: 13.3.x-scala2.12
+            # Standard_DS3_v2 has 4 vCPUs (14 GB RAM)
+            # It is suitable for deployment or light data engineering workloads
+            # NOT suitable not for substantive data-engineering workloads
+            node_type_id: Standard_DS3_v2
+            autoscale:
+              # Limit to only one worker because this is a very lightweight deployment job
+              min_workers: 1
+              max_workers: 1
+
+      queue:
+        enabled: true

@@ -1,0 +1,101 @@
+resources:
+  jobs:
+    run_hds_dlt_pipelines:
+      name: ${bundle.target}_job_run_hds_dlt_pipelines
+      webhook_notifications:
+        on_failure:
+          - id: ${var.job_failure_notification_destination_id}
+      tasks:
+        - task_key: bronze_hds_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_bronze_hds_con.id}
+            full_refresh: false
+        - task_key: silver_hds_con
+          depends_on:
+            - task_key: bronze_hds_con
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dlt_silver_hds_con_data_model.id}
+            full_refresh: false
+      queue:
+        enabled: true
+
+  pipelines:
+    dlt_bronze_hds_con:
+      name: ${bundle.target}_dlt_bronze_hds_con
+      tags:
+        source: 'hds'
+        class: 'con'
+        workload-type: 'ingest'
+        sub-workload-type: 'bronze'
+        business-unit: 'data'
+        sub-business-unit: 'engineering'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'hds'
+            class: 'con'
+            workload-type: 'ingest'
+            sub-workload-type: 'bronze'
+            business-unit: 'data'
+            sub-business-unit: 'engineering'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/bronze_merges/hds/nb_dlt_bronze_con_data_model.py"
+      configuration:
+        environment_name: ${bundle.target}
+        datalake_name_con: ${var.DATALAKE_NAME_CON}
+        datalake_name_int: ${var.DATALAKE_NAME_INT}
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: bronze_hds_con
+      channel: CURRENT
+      catalog: ${bundle.target}_catalog
+      event_log:
+        name: dlt_bronze_hds_con
+        schema: event_log
+        catalog: ${bundle.target}_logs       
+
+    dlt_silver_hds_con_data_model:
+      name: ${bundle.target}_dlt_silver_hds_con_data_model
+      tags:
+        source: 'hds'
+        class: 'con'
+        workload-type: 'ingest'
+        sub-workload-type: 'silver'
+        business-unit: 'data'
+        sub-business-unit: 'engineering'
+      clusters:
+        - label: default
+          autoscale:
+            min_workers: 1
+            max_workers: 2
+            mode: ENHANCED
+          custom_tags:
+            source: 'hds'
+            class: 'con'
+            workload-type: 'ingest'
+            sub-workload-type: 'silver'
+            business-unit: 'data'
+            sub-business-unit: 'engineering'
+      libraries:
+        - notebook:
+            path: "../src/includes/${var.common_libs_lts_ver_underscore}/${bundle.target}_include_mdp_databricks_common_${var.common_libs_lts_ver_underscore}.py"
+        - notebook:
+            path: "../src/silver_models/hds_data_model/nb_dlt_update_silver_con_hds_py.py"
+      configuration:
+        pipelines.dropInactiveTables: true
+        pipelines.maxFlowRetryAttempts: 1
+        pipelines.numUpdateRetryAttempts: 0
+      schema: silver_con
+      catalog: ${bundle.target}_catalog
+      event_log:
+        name: dlt_silver_hds_con_data_model
+        schema: event_log
+        catalog: ${bundle.target}_logs       
