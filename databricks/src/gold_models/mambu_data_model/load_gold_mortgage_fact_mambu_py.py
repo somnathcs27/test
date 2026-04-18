@@ -374,6 +374,168 @@ except Exception as e:
 # COMMAND ----------
 
 # -------------------------
+# fact_mortgage_part_test
+# -------------------------
+source_query = f"""
+WITH cte_expected_payment_amount AS (
+    SELECT rpm.PARENT_ACCOUNT_KEY, (rpm.INTEREST_DUE +
+                                rpm.PRINCIPAL_DUE +
+                                rpm.FEES_DUE +
+                                rpm.PENALTY_DUE +
+                                rpm.TAX_INTEREST_DUE +
+                                rpm.TAX_FEES_DUE +
+                                rpm.TAX_PENALTY_DUE +
+                                rpm.ORGANIZATION_COMMISSION_DUE +
+                                rpm.FUNDERS_INTEREST_DUE) AS EXPECTED_PAYMENT_AMOUNT
+    FROM {catalog_name}.silver_con.mambu_repayment rpm
+    -- Adjust the date to reflect the fact we're processing data from one day previous
+    WHERE rpm.DUE_DATE >= DATE_ADD(CAST(FROM_UTC_TIMESTAMP(NOW(), 'Europe/London') AS DATE),-1)
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY rpm.PARENT_ACCOUNT_KEY ORDER BY rpm.DUE_DATE) = 1    
+)
+
+,cte_interest_rate_setting AS (
+    SELECT ACCOUNT_KEY, COALESCE(INTEREST_SPREAD,0) AS INTEREST_SPREAD
+    FROM {catalog_name}.silver_int.mambu_account_interest_rate_settings
+    WHERE ROW_IS_CURRENT = 1
+      AND VALID_FROM_DATE <= '{RUN_DATE}'
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY ACCOUNT_KEY ORDER BY VALID_FROM_DATE DESC) = 1    
+)
+
+,cte_prepare_fact_mortgage_part AS (
+    SELECT
+        CAST(mla.ID AS STRING) AS BK_MORTGAGE_PART
+        ,CAST(mloc.ID AS STRING) AS BK_MORTGAGE_ACCOUNT  
+        ,CAST(cfvp.PRODUCT_ID_LA AS STRING) AS BK_MORTGAGE_PRODUCT                 
+        ,CASE 
+            WHEN cfvp.ORIGINAL_START_DATE_LA IS NULL THEN '1900-01-01'
+            ELSE COALESCE(TRY_CAST(cfvp.ORIGINAL_START_DATE_LA AS DATE),'1899-12-31')
+        END AS FK_OPEN_DATE
+        ,CAST(COALESCE(mla.CLOSED_DATE,'1900-01-01') AS DATE) AS FK_CLOSED_DATE
+        ,CAST('1900-01-01' AS DATE) AS FK_PRODUCT_START_DATE           
+        ,CAST(mla.ACCRUED_INTEREST AS DECIMAL(38,2)) AS ACCRUED_INTEREST            
+        ,CAST(NULL AS DECIMAL(38,2)) AS ARREARS_BALANCE
+        ,CAST((mla.PRINCIPAL_BALANCE + mla.INTEREST_BALANCE + mla.ACCRUED_INTEREST) AS DECIMAL(38,2)) AS CURRENT_BALANCE
+        ,CAST((mla.PRINCIPAL_BALANCE + mla.INTEREST_BALANCE) AS DECIMAL(38,2)) AS LEDGER_BALANCE
+        ,CAST((mla.INTEREST_RATE + COALESCE(irs.INTEREST_SPREAD,0))/100 AS DECIMAL(38,6)) AS CUSTOMER_RATE
+        ,CAST(epa.EXPECTED_PAYMENT_AMOUNT AS DECIMAL(38,2)) AS EXPECTED_PAYMENT_AMOUNT
+        ,CAST(lps.LIQUIDITY_TERM_PREMIUM AS DECIMAL(38,6)) AS LIQUIDITY_TERM_PREMIUM
+        ,CAST(mla.INTEREST_RATE/100 AS DECIMAL(38,6)) AS INTEREST_RATE
+        ,mla.LINE_OF_CREDIT_KEY
+        ,FLOOR(MONTHS_BETWEEN(ADD_MONTHS(TRY_CAST(cfvp.ORIGINAL_START_DATE_LA AS DATE), cfvp.ORIGINAL_TERM_LA), '{RUN_DATE}')) AS REMAINING_MONTHS
+        ,CASE
+            WHEN lps.RANK5_FOR_MONTHS IS NOT NULL OR lps.RANK5_END_DATE IS NOT NULL THEN 6
+            WHEN lps.RANK4_FOR_MONTHS IS NOT NULL OR lps.RANK4_END_DATE IS NOT NULL THEN 5
+            WHEN lps.RANK3_FOR_MONTHS IS NOT NULL OR lps.RANK3_END_DATE IS NOT NULL THEN 4
+            WHEN lps.RANK2_FOR_MONTHS IS NOT NULL OR lps.RANK2_END_DATE IS NOT NULL THEN 3
+            WHEN lps.RANK1_FOR_MONTHS IS NOT NULL OR lps.RANK1_END_DATE IS NOT NULL THEN 2
+            ELSE 1
+        END AS FINAL_RANK
+       ,cfvp.ORIGINAL_ADVANCE_AMOUNT_LA AS ORIGINAL_ADVANCE
+    FROM {catalog_name}.silver_con.mambu_loan_account AS mla
+    INNER JOIN {catalog_name}.silver_con.mambu_custom_field_value_pivot AS cfvp
+    ON mla.ENCODED_KEY = cfvp.PARENT_KEY
+    AND mla.ROW_IS_CURRENT = 1
+    AND cfvp.ROW_IS_CURRENT = 1
+    LEFT JOIN {catalog_name}.silver_con.mambu_line_of_credit AS mloc
+    ON mla.LINE_OF_CREDIT_KEY = mloc.ENCODED_KEY
+    AND mloc.ROW_IS_CURRENT = 1
+    LEFT JOIN {catalog_name}.silver_int.lps_product AS lps
+    ON cfvp.PRODUCT_ID_LA = lps.PRODUCT_CODE
+    AND cfvp.ROW_IS_CURRENT = 1
+    AND lps.ROW_IS_CURRENT = 1
+    LEFT JOIN cte_interest_rate_setting AS irs
+    ON irs.ACCOUNT_KEY = mla.ENCODED_KEY
+    LEFT JOIN cte_expected_payment_amount epa
+    ON mla.ENCODED_KEY = epa.PARENT_ACCOUNT_KEY
+)
+,cte_transformed_fields AS (
+    SELECT 
+        FK_FACT_MORTGAGE_PART,
+        RANK1_BALLOON_DATE,
+        RANK2_BALLOON_DATE,
+        RANK3_BALLOON_DATE,
+        RANK4_BALLOON_DATE,
+        RANK5_BALLOON_DATE,
+        FK_NEXT_BALLOON_DATE,
+        CURRENT_RANK,
+        BENCHMARK_RATE
+    FROM {env_var}_catalog.silver_con.mview_mambu_transformed_fields
+    WHERE ROW_IS_CURRENT = 1
+)
+    SELECT
+        CAST(xxhash64(cfmp.BK_MORTGAGE_PART) AS BIGINT) AS PK_FACT_MORTGAGE_PART
+        ,CASE
+            WHEN dmp.PK_MORTGAGE_PART IS NOT NULL THEN dmp.PK_MORTGAGE_PART
+            WHEN dmp.PK_MORTGAGE_PART IS NULL AND cfmp.BK_MORTGAGE_PART IS NOT NULL THEN -1
+            ELSE -2
+        END AS FK_MORTGAGE_PART
+        ,CASE
+            WHEN dma.PK_MORTGAGE_ACCOUNT IS NOT NULL THEN dma.PK_MORTGAGE_ACCOUNT
+            WHEN dma.PK_MORTGAGE_ACCOUNT IS NULL AND cfmp.BK_MORTGAGE_ACCOUNT IS NOT NULL THEN -1
+            ELSE -2
+        END AS FK_MORTGAGE_ACCOUNT
+        ,CASE
+            WHEN product.PK_MORTGAGE_PRODUCT IS NOT NULL THEN product.PK_MORTGAGE_PRODUCT
+            WHEN product.PK_MORTGAGE_PRODUCT IS NULL AND cfmp.BK_MORTGAGE_PRODUCT IS NOT NULL THEN -1
+            ELSE -2
+        END AS FK_MORTGAGE_PRODUCT
+        ,CASE
+            WHEN dmp_rank_current.PK_MORTGAGE_PRODUCT_RANK IS NOT NULL THEN dmp_rank_current.PK_MORTGAGE_PRODUCT_RANK
+            WHEN dmp_rank_current.PK_MORTGAGE_PRODUCT_RANK IS NULL AND cfmp.BK_MORTGAGE_PRODUCT IS NOT NULL THEN -1
+            ELSE -2
+        END AS FK_MORTGAGE_PRODUCT_CURRENT_RANK
+        ,CASE
+            WHEN dmp_rank_final.PK_MORTGAGE_PRODUCT_RANK IS NOT NULL THEN dmp_rank_final.PK_MORTGAGE_PRODUCT_RANK
+            WHEN dmp_rank_final.PK_MORTGAGE_PRODUCT_RANK IS NULL AND cfmp.BK_MORTGAGE_PRODUCT IS NOT NULL THEN -1
+            ELSE -2
+        END AS FK_MORTGAGE_PRODUCT_FINAL_RANK
+        ,tf.FK_NEXT_BALLOON_DATE 
+        ,cfmp.FK_OPEN_DATE
+        ,cfmp.FK_CLOSED_DATE
+        ,cfmp.FK_PRODUCT_START_DATE
+        ,dmp.ACCOUNT_NUMBER
+        ,dmp.PART_NUMBER
+        ,cfmp.ACCRUED_INTEREST
+        ,cfmp.ARREARS_BALANCE
+        ,tf.BENCHMARK_RATE
+        ,cfmp.CURRENT_BALANCE
+        ,tf.CURRENT_RANK
+        ,cfmp.CUSTOMER_RATE
+        ,cfmp.EXPECTED_PAYMENT_AMOUNT
+        ,cfmp.FINAL_RANK
+        ,cfmp.LEDGER_BALANCE
+        ,cfmp.LIQUIDITY_TERM_PREMIUM
+        ,cfmp.INTEREST_RATE    
+        ,CAST((cfmp.REMAINING_MONTHS / 12) AS TINYINT) AS REMAINING_YEARS
+        ,CAST((cfmp.REMAINING_MONTHS % 12) AS TINYINT) AS REMAINING_MONTHS
+        ,cfmp.ORIGINAL_ADVANCE
+    FROM cte_prepare_fact_mortgage_part AS cfmp
+    LEFT JOIN cte_transformed_fields AS tf
+    ON CAST(xxhash64(cfmp.BK_MORTGAGE_PART) AS BIGINT) = tf.FK_FACT_MORTGAGE_PART
+    LEFT JOIN {catalog_name}.gold_con.dim_mortgage_part AS dmp 
+    ON (cfmp.BK_MORTGAGE_PART = dmp.BK_MORTGAGE_PART AND dmp.ROW_IS_CURRENT = 1)
+    LEFT JOIN {catalog_name}.gold_int.dim_mortgage_product AS product
+    ON (cfmp.BK_MORTGAGE_PRODUCT = product.BK_MORTGAGE_PRODUCT AND product.ROW_IS_CURRENT = 1)
+    LEFT JOIN {catalog_name}.gold_con.dim_mortgage_account AS dma 
+    ON (cfmp.BK_MORTGAGE_ACCOUNT = dma.BK_MORTGAGE_ACCOUNT AND dma.ROW_IS_CURRENT = 1)
+    LEFT JOIN {catalog_name}.gold_int.dim_mortgage_product_rank AS dmp_rank_current
+    ON (cfmp.BK_MORTGAGE_PRODUCT = dmp_rank_current.BK_MORTGAGE_PRODUCT_RANK AND dmp_rank_current.ROW_IS_CURRENT = 1 
+    AND dmp_rank_current.RANK = tf.CURRENT_RANK)
+    LEFT JOIN {catalog_name}.gold_int.dim_mortgage_product_rank AS dmp_rank_final
+    ON (cfmp.BK_MORTGAGE_PRODUCT = dmp_rank_final.BK_MORTGAGE_PRODUCT_RANK AND dmp_rank_final.ROW_IS_CURRENT = 1 
+    AND dmp_rank_final.RANK = cfmp.FINAL_RANK)
+"""
+
+try:
+    fact = FactFactory(catalog_name, 'gold_con','fact_mortgage_part_test', source_query).create(FactType.FULL_LOAD)
+    fact.load()
+except Exception as e:
+    dbutils.jobs.taskValues.set("error_detail", str(e))
+    raise(e)
+
+# COMMAND ----------
+
+# -------------------------
 # fact_mortgage_transaction
 # -------------------------
 source_query = f"""

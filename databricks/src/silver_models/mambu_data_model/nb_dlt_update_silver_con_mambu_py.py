@@ -892,28 +892,21 @@ def mambu_activity():
 
 # COMMAND ----------
 
-@dlt.table(
-    name="mambu_transformed_fields", 
+@dlt.materialized_view(
+    name="mview_mambu_transformed_fields", 
     comment="each action that takes place in the application is followed by an activity that is logged and posted on the dashboard and on the activity feed"
 )
 @dlt.expect("Check that LINE_OF_CREDIT_KEY is not null", "LINE_OF_CREDIT_KEY IS NOT NULL")
-def mambu_transformed_fields():
+def mview_mambu_transformed_fields():
 
     df = spark.sql(
         f"""
-    WITH cte_interest_rate_setting AS (
-        SELECT ACCOUNT_KEY, COALESCE(INTEREST_SPREAD,0) AS INTEREST_SPREAD
-        FROM {env_var}_catalog.silver_int.mambu_account_interest_rate_settings
-        WHERE ROW_IS_CURRENT = 1
-        AND VALID_FROM_DATE <= CURRENT_DATE
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY ACCOUNT_KEY ORDER BY VALID_FROM_DATE DESC) = 1    
-    )
     SELECT
-        CAST(mla.ID AS STRING) AS BK_MORTGAGE_PART
-        ,CAST(mloc.ID AS STRING) AS BK_MORTGAGE_ACCOUNT  
-        ,CAST(cfvp.PRODUCT_ID_LA AS STRING) AS BK_MORTGAGE_PRODUCT   
+        CAST(mla.ID AS STRING) AS PK_VW_MAMBU_TRANSFORMED_FIELDS,
+        CAST(xxhash64(mla.ID) AS BIGINT) AS FK_FACT_MORTGAGE_PART,
+        CAST(mloc.ID AS STRING) AS BK_MORTGAGE_ACCOUNT,  
+        CAST(cfvp.PRODUCT_ID_LA AS STRING) AS BK_MORTGAGE_PRODUCT,   
         mloc.ENCODED_KEY AS LINE_OF_CREDIT_KEY,
-        FLOOR(MONTHS_BETWEEN(ADD_MONTHS(TRY_CAST(cfvp.ORIGINAL_START_DATE_LA AS DATE), cfvp.ORIGINAL_TERM_LA), CURRENT_DATE)) AS REMAINING_MONTHS,
         CASE 
             WHEN lps.RANK1_END_DATE IS NOT NULL THEN lps.RANK1_END_DATE
             ELSE ADD_MONTHS(TRY_CAST(cfvp.ORIGINAL_START_DATE_LA AS DATE), lps.RANK1_FOR_MONTHS) 
@@ -958,29 +951,24 @@ def mambu_transformed_fields():
                 WHEN CURRENT_RANK = 4 AND lps.RANK4_TYPE = 'Fixed' THEN lps.BENCHMARK_RATE
                 WHEN CURRENT_RANK = 5 AND lps.RANK5_TYPE = 'Fixed' THEN lps.BENCHMARK_RATE
                 ELSE (0.05 + (brl.RATE/100))
-            END AS DECIMAL(38,6)) AS BENCHMARK_RATE
+            END AS DECIMAL(38,6)) AS BENCHMARK_RATE,
+        mla.ROW_IS_CURRENT
     FROM {env_var}_catalog.silver_con.mambu_loan_account AS mla
     INNER JOIN {env_var}_catalog.silver_con.mambu_custom_field_value_pivot AS cfvp
     ON mla.ENCODED_KEY = cfvp.PARENT_KEY
     AND mla.ROW_IS_CURRENT = 1
     AND cfvp.ROW_IS_CURRENT = 1
-    LEFT JOIN {env_var}_catalog.silver_con.mambu_line_of_credit AS mloc
-    ON mla.LINE_OF_CREDIT_KEY = mloc.ENCODED_KEY
-    AND mloc.ROW_IS_CURRENT = 1
     LEFT JOIN {env_var}_catalog.silver_int.lps_product AS lps
     ON cfvp.PRODUCT_ID_LA = lps.PRODUCT_CODE
     AND cfvp.ROW_IS_CURRENT = 1
     AND lps.ROW_IS_CURRENT = 1
-    LEFT JOIN cte_interest_rate_setting AS irs
-    ON irs.ACCOUNT_KEY = mla.ENCODED_KEY
-    LEFT JOIN {env_var}_catalog.silver_int.reference_data_base_rate_loading AS brl
-    ON brl.END_DATE >= CURRENT_DATE
-    AND brl.ROW_IS_CURRENT = 1
-    GROUP BY mloc.ID, mloc.ENCODED_KEY, cfvp.ORIGINAL_START_DATE_LA, cfvp.ORIGINAL_TERM_LA, lps.RANK1_END_DATE, lps.RANK1_FOR_MONTHS, lps.RANK2_END_DATE, lps.RANK2_FOR_MONTHS, lps.RANK3_END_DATE, lps.RANK3_FOR_MONTHS, lps.RANK4_END_DATE, lps.RANK4_FOR_MONTHS, lps.RANK5_END_DATE, lps.RANK5_FOR_MONTHS, lps.RANK1_TYPE, lps.RANK2_TYPE, lps.RANK3_TYPE, lps.RANK4_TYPE, lps.RANK5_TYPE, lps.BENCHMARK_RATE, brl.RATE
+    LEFT JOIN {env_var}_catalog.silver_con.mambu_line_of_credit AS mloc
+    ON mla.LINE_OF_CREDIT_KEY = mloc.ENCODED_KEY
+    AND mloc.ROW_IS_CURRENT = 1
     """
     )
     
-    windowSpec = dlf.get_window_spec("LINE_OF_CREDIT_KEY","ROW_START_DATETIME")   
-    df = dlf.get_row_number(df, windowSpec)   
+    # windowSpec = dlf.get_window_spec("LINE_OF_CREDIT_KEY","ROW_START_DATETIME")   
+    # df = dlf.get_row_number(df, windowSpec)   
 
     return df
