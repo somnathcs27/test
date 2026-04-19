@@ -463,7 +463,7 @@ WITH cte_expected_payment_amount AS (
         TYPE,
         RANK_START_DATE,
         RANK_END_DATE
-    FROM {env_var}_catalog.silver_con.mview_mambu_transformed_fields
+    FROM {env_var}_catalog.silver_transformed.mview_mambu_transformed_fields
     WHERE ROW_IS_CURRENT = 1
 )
     SELECT
@@ -741,7 +741,7 @@ cte_mambu_benchmark_rate AS (
         RANK_END_DATE,
         TYPE,
         BENCHMARK_RATE
-    FROM {env_var}_catalog.silver_con.mview_mambu_transformed_fields
+    FROM {env_var}_catalog.silver_transformed.mview_mambu_transformed_fields
     WHERE ROW_IS_CURRENT = 1
 ),
 
