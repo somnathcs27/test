@@ -952,6 +952,27 @@ def mview_mambu_transformed_fields():
                 WHEN CURRENT_RANK = 5 AND lps.RANK5_TYPE = 'Fixed' THEN lps.BENCHMARK_RATE
                 ELSE (0.05 + (brl.RATE/100))
             END AS DECIMAL(38,6)) AS BENCHMARK_RATE,
+        CASE
+            WHEN CURRENT_RANK = 1 THEN lps.RANK1_TYPE
+            WHEN CURRENT_RANK = 2 THEN lps.RANK2_TYPE
+            WHEN CURRENT_RANK = 3 THEN lps.RANK3_TYPE
+            WHEN CURRENT_RANK = 4 THEN lps.RANK4_TYPE
+            WHEN CURRENT_RANK = 5 THEN lps.RANK5_TYPE
+        END AS TYPE,
+        CASE
+            WHEN CURRENT_RANK = 1 THEN COALESCE(lps.LAUNCH_DATE, CAST('1900-01-01' AS DATE))
+            WHEN CURRENT_RANK = 2 THEN lps.RANK1_END_DATE
+            WHEN CURRENT_RANK = 3 THEN lps.RANK2_END_DATE
+            WHEN CURRENT_RANK = 4 THEN lps.RANK3_END_DATE
+            WHEN CURRENT_RANK = 5 THEN lps.RANK4_END_DATE
+        END AS RANK_START_DATE,
+        CASE
+            WHEN CURRENT_RANK = 1 THEN lps.RANK1_END_DATE
+            WHEN CURRENT_RANK = 2 THEN lps.RANK2_END_DATE
+            WHEN CURRENT_RANK = 3 THEN lps.RANK3_END_DATE
+            WHEN CURRENT_RANK = 4 THEN lps.RANK4_END_DATE
+            WHEN CURRENT_RANK = 5 THEN lps.RANK5_END_DATE
+        END AS RANK_END_DATE,
         mla.ROW_IS_CURRENT
     FROM {env_var}_catalog.silver_con.mambu_loan_account AS mla
     INNER JOIN {env_var}_catalog.silver_con.mambu_custom_field_value_pivot AS cfvp
@@ -965,6 +986,9 @@ def mview_mambu_transformed_fields():
     LEFT JOIN {env_var}_catalog.silver_con.mambu_line_of_credit AS mloc
     ON mla.LINE_OF_CREDIT_KEY = mloc.ENCODED_KEY
     AND mloc.ROW_IS_CURRENT = 1
+    LEFT JOIN {env_var}_catalog.silver_int.reference_data_base_rate_loading AS brl
+    ON brl.END_DATE >= '{RUN_DATE}'
+    AND brl.ROW_IS_CURRENT = 1
     """
     )
     

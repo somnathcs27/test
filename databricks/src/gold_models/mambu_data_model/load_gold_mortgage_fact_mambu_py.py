@@ -458,7 +458,11 @@ WITH cte_expected_payment_amount AS (
         RANK5_BALLOON_DATE,
         FK_NEXT_BALLOON_DATE,
         CURRENT_RANK,
-        BENCHMARK_RATE
+        BENCHMARK_RATE,
+        BK_MORTGAGE_PRODUCT,
+        TYPE,
+        RANK_START_DATE,
+        RANK_END_DATE
     FROM {env_var}_catalog.silver_con.mview_mambu_transformed_fields
     WHERE ROW_IS_CURRENT = 1
 )
@@ -694,6 +698,150 @@ AND dma.ROW_IS_CURRENT = 1
 
 try:
     fact = FactFactory(catalog_name, 'gold_con','fact_mortgage_transaction', source_query).create(FactType.FULL_LOAD)
+    fact.load()
+except Exception as e:
+    dbutils.jobs.taskValues.set("error_detail", str(e))
+    raise(e)
+
+# COMMAND ----------
+
+# -------------------------
+# fact_mortgage_transaction_test
+# -------------------------
+source_query = f"""
+WITH cte_transaction_payment_method AS (
+    SELECT
+        mtd.ENCODED_KEY AS TRANSACTION_DETAILS_ENCODED_KEY,
+        mtc.NAME AS PAYMENT_METHOD
+    FROM {catalog_name}.silver_int.mambu_transaction_details AS mtd
+    INNER JOIN {catalog_name}.silver_int.mambu_transaction_channel AS mtc
+    ON mtd.TRANSACTION_CHANNEL_KEY = mtc.ENCODED_KEY
+    WHERE mtd.ROW_IS_CURRENT = 1
+    AND mtc.ROW_IS_CURRENT = 1
+),
+
+cte_mambu_custom_fields AS (
+    SELECT 
+        mla.ENCODED_KEY AS ACCOUNT_KEY,
+        mla.LINE_OF_CREDIT_KEY,
+        mla.ID,
+        CAST(cfvp.PRODUCT_ID_LA AS STRING) AS MORTGAGE_PRODUCT_CODE  
+    FROM {catalog_name}.silver_con.mambu_loan_account AS mla
+    INNER JOIN {catalog_name}.silver_con.mambu_custom_field_value_pivot AS cfvp
+    ON mla.ENCODED_KEY = cfvp.PARENT_KEY
+    WHERE mla.ROW_IS_CURRENT = 1
+    AND cfvp.ROW_IS_CURRENT = 1
+),
+
+cte_mambu_benchmark_rate AS (
+    SELECT 
+        BK_MORTGAGE_PRODUCT AS PRODUCT_CODE,
+        CURRENT_RANK AS RANK,
+        RANK_START_DATE,
+        RANK_END_DATE,
+        TYPE,
+        BENCHMARK_RATE
+    FROM {env_var}_catalog.silver_con.mview_mambu_transformed_fields
+    WHERE ROW_IS_CURRENT = 1
+),
+
+cte_interest_rate_setting AS (
+    SELECT ACCOUNT_KEY, COALESCE(INTEREST_SPREAD,0) AS INTEREST_SPREAD
+    FROM {catalog_name}.silver_int.mambu_account_interest_rate_settings
+    WHERE ROW_IS_CURRENT = 1
+      AND VALID_FROM_DATE <= '{RUN_DATE}'
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY ACCOUNT_KEY ORDER BY VALID_FROM_DATE DESC) = 1    
+),
+
+cte_prepare_fact_mortgage_transaction AS (
+    SELECT
+        CAST(xxhash64(mlt.ENCODED_KEY) AS BIGINT) AS PK_FACT_MORTGAGE_TRANSACTION,
+        CAST(xxhash64(CONCAT(COALESCE(mlt.TYPE, 'Unknown'), COALESCE(paym.PAYMENT_METHOD, 'Unknown'))) AS BIGINT) AS BK_MORTGAGE_TRANSACTION,
+        CAST(cfs.ID AS STRING) AS BK_MORTGAGE_PART,
+        CAST(mloc.ID AS STRING) AS BK_MORTGAGE_ACCOUNT,
+        COALESCE(mlt.ENTRY_DATE, CAST('1900-01-01' AS DATE)) AS FK_BUSINESS_DATE,
+        COALESCE(mlt.CREATION_DATE, CAST('1900-01-01' AS DATE)) AS FK_PROCESSED_DATE,
+        mlt.TRANSACTION_ID,
+        CAST(
+            CASE 
+                WHEN bmr.TYPE = 'Fixed' THEN bmr.BENCHMARK_RATE
+                ELSE ({boe_base_rate} + (brl.RATE/100))
+            END AS DECIMAL(38,6)) AS BENCHMARK_RATE,
+        CAST((mla.INTEREST_RATE + irs.INTEREST_SPREAD)/100 AS DECIMAL(38,6)) AS CUSTOMER_RATE,
+        CAST(prod.LIQUIDITY_TERM_PREMIUM AS DECIMAL(38,6)) AS LIQUIDITY_TERM_PREMIUM,              
+        CASE 
+            WHEN mlt.TYPE IN ('REPAYMENT', 'REPAYMENT_ADJUSTMENT', 'DEFERRED_INTEREST_PAID', 'DEFERRED_INTEREST_PAID_ADJUSTMENT', 'WRITE_OFF', 'WRITE_OFF_ADJUSTMENT') THEN CAST(mlt.AMOUNT AS DECIMAL(38,2))
+            ELSE NULL
+        END AS RECEIPT_AMOUNT,
+        CASE 
+            WHEN mlt.TYPE IN ('DISBURSMENT', 'DISBURSMENT_ADJUSTMENT', 'INTEREST_APPLIED', 'INTEREST_APPLIED_ADJUSTMENT', 'DEFERRED_INTEREST_APPLIED', 'FEE', 'FEE_ADJUSTMENT', 'FEE_CHARGED', 'FEE_APPLIED', 'PENALTY_APPLIED', 'PENALTY_ADJUSTMENT', 'DEFERRED_INTEREST_APPLIED_ADJUSTMENT', 'TRANSFER', 'TRANSFER_ADJUSTMENT') THEN CAST(mlt.AMOUNT AS DECIMAL(38,2))
+            ELSE NULL
+        END AS WITHDRAWAL_AMOUNT
+    FROM {catalog_name}.silver_con.mambu_loan_transaction AS mlt
+    LEFT JOIN {catalog_name}.silver_con.mambu_loan_account mla
+    ON mlt.PARENT_ACCOUNT_KEY = mla.ENCODED_KEY
+    AND mla.ROW_IS_CURRENT = 1
+    LEFT JOIN cte_transaction_payment_method AS paym
+    ON mlt.DETAILS_ENCODEDKEY_OID = paym.TRANSACTION_DETAILS_ENCODED_KEY
+    LEFT JOIN cte_mambu_custom_fields AS cfs
+    ON mlt.PARENT_ACCOUNT_KEY = cfs.ACCOUNT_KEY
+    LEFT JOIN {catalog_name}.silver_int.lps_product AS prod 
+    ON cfs.MORTGAGE_PRODUCT_CODE = prod.PRODUCT_CODE
+    LEFT JOIN cte_mambu_benchmark_rate AS bmr
+    ON prod.PRODUCT_CODE = bmr.PRODUCT_CODE
+    AND mlt.CREATION_DATE >= bmr.RANK_START_DATE 
+    AND mlt.CREATION_DATE < bmr.RANK_END_DATE
+    LEFT JOIN {catalog_name}.silver_con.mambu_line_of_credit AS mloc
+    ON cfs.LINE_OF_CREDIT_KEY = mloc.ENCODED_KEY
+    AND mloc.ROW_IS_CURRENT = 1
+    LEFT JOIN cte_interest_rate_setting AS irs
+    ON irs.ACCOUNT_KEY = cfs.ACCOUNT_KEY
+    LEFT JOIN {catalog_name}.silver_int.reference_data_base_rate_loading AS brl
+    ON brl.END_DATE >= '{RUN_DATE}'
+    AND brl.ROW_IS_CURRENT = 1    
+    WHERE mlt.ROW_IS_CURRENT = 1
+)
+SELECT 
+    cfmt.PK_FACT_MORTGAGE_TRANSACTION,
+    CASE 
+        WHEN dmt.PK_MORTGAGE_TRANSACTION IS NOT NULL THEN dmt.PK_MORTGAGE_TRANSACTION
+        WHEN dmt.PK_MORTGAGE_TRANSACTION IS NULL AND cfmt.BK_MORTGAGE_TRANSACTION IS NOT NULL THEN -1
+        ELSE -2 
+    END AS FK_MORTGAGE_TRANSACTION,                
+    CASE 
+        WHEN dmp.PK_MORTGAGE_PART IS NOT NULL THEN dmp.PK_MORTGAGE_PART
+        WHEN dmp.PK_MORTGAGE_PART IS NULL AND cfmt.BK_MORTGAGE_PART IS NOT NULL THEN -1
+        ELSE -2 
+    END AS FK_MORTGAGE_PART,
+    CASE 
+        WHEN dma.PK_MORTGAGE_ACCOUNT IS NOT NULL THEN dma.PK_MORTGAGE_ACCOUNT
+        WHEN dma.PK_MORTGAGE_ACCOUNT IS NULL AND cfmt.BK_MORTGAGE_ACCOUNT IS NOT NULL THEN -1
+        ELSE -2 
+    END AS FK_MORTGAGE_ACCOUNT,                 
+    cfmt.FK_BUSINESS_DATE,
+    cfmt.FK_PROCESSED_DATE,
+    cfmt.TRANSACTION_ID,
+    dmp.ACCOUNT_NUMBER,
+    dmp.PART_NUMBER,        
+    CAST(cfmt.BENCHMARK_RATE AS DECIMAL(38,6)) AS BENCHMARK_RATE,
+    CAST(cfmt.CUSTOMER_RATE AS DECIMAL(38,6)) AS CUSTOMER_RATE,
+    CAST(cfmt.LIQUIDITY_TERM_PREMIUM AS DECIMAL(38,6)) AS LIQUIDITY_TERM_PREMIUM,
+    CAST(cfmt.RECEIPT_AMOUNT AS DECIMAL(38,2)) AS RECEIPT_AMOUNT,
+    CAST(cfmt.WITHDRAWAL_AMOUNT AS DECIMAL(38,2)) AS WITHDRAWAL_AMOUNT
+FROM cte_prepare_fact_mortgage_transaction AS cfmt
+LEFT JOIN {catalog_name}.gold_con.dim_mortgage_transaction AS dmt 
+ON cfmt.BK_MORTGAGE_TRANSACTION = dmt.BK_MORTGAGE_TRANSACTION
+AND dmt.ROW_IS_CURRENT = 1
+LEFT JOIN {catalog_name}.gold_con.dim_mortgage_part AS dmp
+ON cfmt.BK_MORTGAGE_PART = dmp.BK_MORTGAGE_PART
+AND dmp.ROW_IS_CURRENT = 1
+LEFT JOIN {catalog_name}.gold_con.dim_mortgage_account AS dma
+ON cfmt.BK_MORTGAGE_ACCOUNT = dma.BK_MORTGAGE_ACCOUNT
+AND dma.ROW_IS_CURRENT = 1
+"""
+
+try:
+    fact = FactFactory(catalog_name, 'gold_con','fact_mortgage_transaction_test', source_query).create(FactType.FULL_LOAD)
     fact.load()
 except Exception as e:
     dbutils.jobs.taskValues.set("error_detail", str(e))
