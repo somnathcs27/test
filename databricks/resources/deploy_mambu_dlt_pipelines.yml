@@ -256,7 +256,7 @@ resources:
         pipelines.dropInactiveTables: true
         pipelines.maxFlowRetryAttempts: 1
         pipelines.numUpdateRetryAttempts: 0
-      schema: silver_transformed
+      schema: silver_con
       catalog: ${bundle.target}_catalog
       event_log:
         name: dlt_silver_mambu_transformed_data_model
