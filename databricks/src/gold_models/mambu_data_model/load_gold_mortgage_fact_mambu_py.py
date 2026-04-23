@@ -404,6 +404,7 @@ WITH cte_expected_payment_amount AS (
 ,cte_prepare_fact_mortgage_part AS (
     SELECT
         CAST(mla.ID AS STRING) AS BK_MORTGAGE_PART
+        ,mla.ENCODED_KEY
         ,CAST(mloc.ID AS STRING) AS BK_MORTGAGE_ACCOUNT  
         ,CAST(cfvp.PRODUCT_ID_LA AS STRING) AS BK_MORTGAGE_PRODUCT                 
         ,CASE 
@@ -448,24 +449,6 @@ WITH cte_expected_payment_amount AS (
     LEFT JOIN cte_expected_payment_amount epa
     ON mla.ENCODED_KEY = epa.PARENT_ACCOUNT_KEY
 )
-,cte_transformed_fields AS (
-    SELECT 
-        FK_FACT_MORTGAGE_PART,
-        RANK1_BALLOON_DATE,
-        RANK2_BALLOON_DATE,
-        RANK3_BALLOON_DATE,
-        RANK4_BALLOON_DATE,
-        RANK5_BALLOON_DATE,
-        FK_NEXT_BALLOON_DATE,
-        CURRENT_RANK,
-        BENCHMARK_RATE,
-        BK_MORTGAGE_PRODUCT,
-        TYPE,
-        RANK_START_DATE,
-        RANK_END_DATE
-    FROM {env_var}_catalog.silver_transformed.mview_mambu_transformed_fields
-    WHERE ROW_IS_CURRENT = 1
-)
     SELECT
         CAST(xxhash64(cfmp.BK_MORTGAGE_PART) AS BIGINT) AS PK_FACT_MORTGAGE_PART
         ,CASE
@@ -493,7 +476,7 @@ WITH cte_expected_payment_amount AS (
             WHEN dmp_rank_final.PK_MORTGAGE_PRODUCT_RANK IS NULL AND cfmp.BK_MORTGAGE_PRODUCT IS NOT NULL THEN -1
             ELSE -2
         END AS FK_MORTGAGE_PRODUCT_FINAL_RANK
-        ,tf.FK_NEXT_BALLOON_DATE 
+        ,tmla.FK_NEXT_BALLOON_DATE 
         ,cfmp.FK_OPEN_DATE
         ,cfmp.FK_CLOSED_DATE
         ,cfmp.FK_PRODUCT_START_DATE
@@ -501,9 +484,9 @@ WITH cte_expected_payment_amount AS (
         ,dmp.PART_NUMBER
         ,cfmp.ACCRUED_INTEREST
         ,cfmp.ARREARS_BALANCE
-        ,tf.BENCHMARK_RATE
+        ,tmla.BENCHMARK_RATE
         ,cfmp.CURRENT_BALANCE
-        ,tf.CURRENT_RANK
+        ,tmla.CURRENT_RANK
         ,cfmp.CUSTOMER_RATE
         ,cfmp.EXPECTED_PAYMENT_AMOUNT
         ,cfmp.FINAL_RANK
@@ -514,8 +497,9 @@ WITH cte_expected_payment_amount AS (
         ,CAST((cfmp.REMAINING_MONTHS % 12) AS TINYINT) AS REMAINING_MONTHS
         ,cfmp.ORIGINAL_ADVANCE
     FROM cte_prepare_fact_mortgage_part AS cfmp
-    LEFT JOIN cte_transformed_fields AS tf
-    ON CAST(xxhash64(cfmp.BK_MORTGAGE_PART) AS BIGINT) = tf.FK_FACT_MORTGAGE_PART
+    LEFT JOIN {env_var}_catalog.silver_con.transformed_mambu_loan_account AS tmla
+    ON cfmp.ENCODED_KEY = tmla.ENCODED_KEY
+    AND tmla.ROW_IS_CURRENT = 1
     LEFT JOIN {catalog_name}.gold_con.dim_mortgage_part AS dmp 
     ON (cfmp.BK_MORTGAGE_PART = dmp.BK_MORTGAGE_PART AND dmp.ROW_IS_CURRENT = 1)
     LEFT JOIN {catalog_name}.gold_int.dim_mortgage_product AS product
@@ -524,7 +508,7 @@ WITH cte_expected_payment_amount AS (
     ON (cfmp.BK_MORTGAGE_ACCOUNT = dma.BK_MORTGAGE_ACCOUNT AND dma.ROW_IS_CURRENT = 1)
     LEFT JOIN {catalog_name}.gold_int.dim_mortgage_product_rank AS dmp_rank_current
     ON (cfmp.BK_MORTGAGE_PRODUCT = dmp_rank_current.BK_MORTGAGE_PRODUCT_RANK AND dmp_rank_current.ROW_IS_CURRENT = 1 
-    AND dmp_rank_current.RANK = tf.CURRENT_RANK)
+    AND dmp_rank_current.RANK = tmla.CURRENT_RANK)
     LEFT JOIN {catalog_name}.gold_int.dim_mortgage_product_rank AS dmp_rank_final
     ON (cfmp.BK_MORTGAGE_PRODUCT = dmp_rank_final.BK_MORTGAGE_PRODUCT_RANK AND dmp_rank_final.ROW_IS_CURRENT = 1 
     AND dmp_rank_final.RANK = cfmp.FINAL_RANK)
@@ -733,18 +717,6 @@ cte_mambu_custom_fields AS (
     AND cfvp.ROW_IS_CURRENT = 1
 ),
 
-cte_mambu_benchmark_rate AS (
-    SELECT 
-        BK_MORTGAGE_PRODUCT AS PRODUCT_CODE,
-        CURRENT_RANK AS RANK,
-        RANK_START_DATE,
-        RANK_END_DATE,
-        TYPE,
-        BENCHMARK_RATE
-    FROM {env_var}_catalog.silver_transformed.mview_mambu_transformed_fields
-    WHERE ROW_IS_CURRENT = 1
-),
-
 cte_interest_rate_setting AS (
     SELECT ACCOUNT_KEY, COALESCE(INTEREST_SPREAD,0) AS INTEREST_SPREAD
     FROM {catalog_name}.silver_int.mambu_account_interest_rate_settings
@@ -762,11 +734,7 @@ cte_prepare_fact_mortgage_transaction AS (
         COALESCE(mlt.ENTRY_DATE, CAST('1900-01-01' AS DATE)) AS FK_BUSINESS_DATE,
         COALESCE(mlt.CREATION_DATE, CAST('1900-01-01' AS DATE)) AS FK_PROCESSED_DATE,
         mlt.TRANSACTION_ID,
-        CAST(
-            CASE 
-                WHEN bmr.TYPE = 'Fixed' THEN bmr.BENCHMARK_RATE
-                ELSE ({boe_base_rate} + (brl.RATE/100))
-            END AS DECIMAL(38,6)) AS BENCHMARK_RATE,
+        tmla.BENCHMARK_RATE,
         CAST((mla.INTEREST_RATE + irs.INTEREST_SPREAD)/100 AS DECIMAL(38,6)) AS CUSTOMER_RATE,
         CAST(prod.LIQUIDITY_TERM_PREMIUM AS DECIMAL(38,6)) AS LIQUIDITY_TERM_PREMIUM,              
         CASE 
@@ -787,10 +755,10 @@ cte_prepare_fact_mortgage_transaction AS (
     ON mlt.PARENT_ACCOUNT_KEY = cfs.ACCOUNT_KEY
     LEFT JOIN {catalog_name}.silver_int.lps_product AS prod 
     ON cfs.MORTGAGE_PRODUCT_CODE = prod.PRODUCT_CODE
-    LEFT JOIN cte_mambu_benchmark_rate AS bmr
-    ON prod.PRODUCT_CODE = bmr.PRODUCT_CODE
-    AND mlt.CREATION_DATE >= bmr.RANK_START_DATE 
-    AND mlt.CREATION_DATE < bmr.RANK_END_DATE
+    LEFT JOIN {env_var}_catalog.silver_con.transformed_mambu_loan_account AS tmla
+    ON prod.PRODUCT_CODE = tmla.PRODUCT_CODE
+    AND mla.ENCODED_KEY = tmla.ENCODED_KEY
+    AND tmla.ROW_IS_CURRENT = 1
     LEFT JOIN {catalog_name}.silver_con.mambu_line_of_credit AS mloc
     ON cfs.LINE_OF_CREDIT_KEY = mloc.ENCODED_KEY
     AND mloc.ROW_IS_CURRENT = 1
