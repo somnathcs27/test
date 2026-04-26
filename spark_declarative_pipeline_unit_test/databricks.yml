@@ -1,0 +1,15 @@
+bundle:
+  name: my-sdp-bundle
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    default: true
+    workspace:
+      host: https://dbc-88922de8-1140.cloud.databricks.com/
+
+  prod:
+    workspace:
+      host: https://dbc-88922de8-1140.cloud.databricks.com/

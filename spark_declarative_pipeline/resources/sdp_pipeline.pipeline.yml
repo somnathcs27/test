@@ -1,0 +1,24 @@
+resources:
+  pipelines:
+    customer_sdp_pipeline:
+      name: customer_sdp_pipeline_${bundle.target}
+
+      catalog: main
+      schema: customer_${bundle.target}
+
+      continuous: false
+      development: ${bundle.target == "dev"}
+
+      photon: true
+      serverless: true
+
+      libraries:
+        - file:
+            path: ../src/pipelines/bronze.py
+        - file:
+            path: ../src/pipelines/silver.py
+        - file:
+            path: ../src/pipelines/gold.py
+
+      configuration:
+        env: ${bundle.target}

@@ -1,0 +1,9 @@
+resources:
+  jobs:
+    run_sdp_ut_pipeline:
+      name: run_sdp_ut_pipeline_${bundle.target}
+
+      tasks:
+        - task_key: refresh_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.sdp_ut_pipeline.id}

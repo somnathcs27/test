@@ -1,0 +1,47 @@
+pipeline_libs_without_ut: &pipeline_libs_without_ut
+  - notebook:
+      path: ../src/source/ingest_source_${bundle.target}.py
+  - file:
+      path: ../src/transformations/*.py
+
+pipeline_libs_with_ut: &pipeline_libs_with_ut
+  - notebook:
+      path: ../src/source/ingest_source_${bundle.target}.py
+  - file:
+      path: ../src/transformations/*.py
+  - file:
+      path: ../src/test/*.py
+
+resources:
+  pipelines:
+    sdp_ut_pipeline:
+      name: sdp_ut_pipeline_${bundle.target}
+
+      schema: sdp_ut_${bundle.target}
+      catalog: main
+
+      continuous: false
+      development: ${bundle.target == "dev"}
+
+      photon: true
+      serverless: true
+
+      libraries: *pipeline_libs_without_ut
+
+      configuration:
+        env: ${bundle.target}
+        catalog: main
+        schema: sdp_ut_${bundle.target}
+
+targets:
+  dev:
+    resources:
+      pipelines:
+        sdp_ut_pipeline:
+          libraries: *pipeline_libs_with_ut
+
+  prod:
+    resources:
+      pipelines:
+        sdp_ut_pipeline:
+          libraries: *pipeline_libs_without_ut

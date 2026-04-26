@@ -1,0 +1,41 @@
+# This is a Databricks asset bundle definition for first_databricks_bundle.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+bundle:
+  name: first_databricks_bundle
+  uuid: e87335d1-215c-4ff7-823a-73ae777bcc0b
+
+include:
+  - resources/*.yml
+
+# Variable declarations. These variables are assigned in the dev/prod targets below.
+variables:
+  catalog:
+    description: The catalog to use
+  schema:
+    description: The schema to use
+
+targets:
+  dev:
+    # The default target uses 'mode: development' to create a development copy.
+    # - Deployed resources get prefixed with '[dev my_user_name]'
+    # - Any job schedules and triggers are paused by default.
+    # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-88922de8-1140.cloud.databricks.com
+    variables:
+      catalog: sdp_dev
+      schema: ${workspace.current_user.short_name}
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-88922de8-1140.cloud.databricks.com
+      # We explicitly deploy to /Workspace/Users/somnathcs27@gmail.com to make sure we only have a single copy.
+      root_path: /Workspace/Users/somnathcs27@gmail.com/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: sdp_dev
+      schema: prod
+    permissions:
+      - user_name: somnathcs27@gmail.com
+        level: CAN_MANAGE

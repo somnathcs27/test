@@ -1,0 +1,28 @@
+resources:
+  pipelines:
+    spark_declarative_pipeline:
+      name: spark_declarative_pipeline_${bundle.target}
+
+      # catalog: sdp_dev
+      # schema: spark_declarative_pipeline_${bundle.target}
+      catalog: main
+      schema: spark_declarative_pipeline_dev
+
+      continuous: false
+      development: ${bundle.target == "dev"}
+
+      photon: true
+      serverless: true
+
+      libraries:
+        - notebook:
+            path: ../ingestion_profile/SDP-ingest_${bundle.target}.py
+        - notebook:
+            path: ../SDP-pipeline-to-test.py
+        - file:
+            path: ../src/*.py
+
+      configuration:
+        env: ${bundle.target}
+        catalog: main
+        schema: spark_declarative_pipeline_dev

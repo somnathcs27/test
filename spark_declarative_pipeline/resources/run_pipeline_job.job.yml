@@ -1,0 +1,9 @@
+resources:
+  jobs:
+    run_customer_sdp:
+      name: run_customer_sdp_${bundle.target}
+
+      tasks:
+        - task_key: refresh_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.customer_sdp_pipeline.id}
